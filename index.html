@@ -1,0 +1,1763 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colombia — An Epic History</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Montserrat:ital,wght@0,300;0,400;0,600;0,700;0,800;1,300&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#000;--ink:#f4e8c8;--gold:#f2c14e;--muted:#b9ad90;--panel:rgba(8,10,18,.82);--line:rgba(242,193,78,.35)}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);overflow:hidden;font-family:Montserrat,system-ui,sans-serif}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+  canvas{width:100vw;height:56.25vw;max-height:100vh;max-width:177.78vh;display:block;background:#000}
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(0,0,0,.35),rgba(0,0,0,.85));z-index:5;padding:16px;box-sizing:border-box}
+  .card{max-width:640px;width:100%;text-align:center;padding:36px 28px;border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(6px)}
+  .kicker{font-size:12px;letter-spacing:.35em;text-transform:uppercase;color:var(--gold)}
+  h1{font-family:Cinzel,serif;font-weight:900;font-size:clamp(40px,9vw,84px);letter-spacing:.12em;margin:.25em 0 .1em;background:linear-gradient(#fff6d0,#f5c850 45%,#b97d1c 72%,#ffe39a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{margin:0 0 22px;color:var(--muted);font-weight:300;letter-spacing:.04em}
+  #status{font-size:13px;color:var(--muted);margin-bottom:18px;min-height:34px}
+  .bar{height:3px;background:rgba(255,255,255,.1);margin-top:8px}
+  .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#FCD116,#003893,#CE1126);transition:width .2s}
+  .btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  button{font:600 14px Montserrat,sans-serif;letter-spacing:.08em;padding:12px 20px;border:1px solid var(--gold);background:var(--gold);color:#1a1204;cursor:pointer}
+  button.ghost{background:transparent;color:var(--gold)}
+  button:disabled{opacity:.35;cursor:default}
+  .hint{font-size:12px;color:#8c826c;margin:18px 0 0}
+  #controls{position:fixed;left:0;right:0;bottom:0;z-index:4;display:flex;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(transparent,rgba(0,0,0,.8));transition:opacity .4s;opacity:0}
+  #controls.show{opacity:1}
+  #controls button{padding:8px 12px;font-size:12px}
+  #seek{flex:1;accent-color:#f2c14e}
+  #time{font:600 12px Montserrat;color:var(--ink);min-width:92px;text-align:center}
+  #rec-badge{position:fixed;top:14px;right:16px;z-index:6;display:none;font:700 12px Montserrat;letter-spacing:.2em;color:#fff;background:#c0121f;padding:6px 10px}
+  #rec-badge.on{display:block}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="1920" height="1080"></canvas></div>
+
+<div id="intro" class="overlay">
+  <div class="card">
+    <div class="kicker">Motion graphics · Original orchestral score · 5:00</div>
+    <h1>COLOMBIA</h1>
+    <p class="sub">An epic history, from El Dorado to 2026</p>
+    <div id="status">Composing the orchestral score… <span id="pct">0%</span><div class="bar"><i id="barfill"></i></div></div>
+    <div class="btns">
+      <button id="play" disabled>▶ Play</button>
+      <button id="rec" class="ghost" disabled title="Plays the film once in real time and saves it as a video file">● Record video</button>
+      <button id="wav" class="ghost" disabled>⤓ Soundtrack (WAV)</button>
+    </div>
+    <p class="hint">Best in fullscreen (F) with headphones · Space pause · ←/→ seek 5s</p>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="pp">❚❚</button>
+  <span id="time">0:00 / 5:00</span>
+  <input id="seek" type="range" min="0" max="300" step="0.05" value="0">
+  <button id="fs">⛶ Fullscreen</button>
+</div>
+<div id="rec-badge">● REC — keep this tab visible</div>
+
+<script>
+// =====================================================================
+//  CONSTANTS & UTILITIES
+// =====================================================================
+const W = 1920, H = 1080, BPM = 96, BEAT = 60 / BPM, BAR = BEAT * 4; // one bar = 2.5 s
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const GOLD = '#f2c14e', GOLD2 = '#ffe08a', YEL = '#FCD116', BLU = '#003893', RED = '#CE1126';
+
+const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eo3 = t => 1 - Math.pow(1 - t, 3);
+const eio = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const eoexp = t => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+const eoback = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const win = (t, a, b, f = .5) => clamp((t - a) / f) * clamp((b - t) / f);
+function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
+
+// Scene alpha (for crossfades) — every draw goes through A()
+let SA = 1;
+function A(a = 1) { ctx.globalAlpha = clamp(SA * a); }
+
+// ---------- text ----------
+function setFont(o) { ctx.font = `${o.style || ''} ${o.weight || 400} ${o.size || 40}px ${o.font === 'Cinzel' ? "'Cinzel', 'Times New Roman', serif" : "'Montserrat', 'Segoe UI', sans-serif"}`; }
+function txt(s, x, y, o = {}) {
+  const a = o.alpha ?? 1; if (a <= 0) return;
+  ctx.save(); A(a); setFont(o);
+  const al = o.align || 'center'; ctx.textAlign = al; ctx.textBaseline = 'middle';
+  const sp = o.spacing || 0; if ('letterSpacing' in ctx) ctx.letterSpacing = sp + 'px';
+  let xx = x; if (al === 'center') xx += sp / 2;
+  if (o.glow) { ctx.shadowColor = o.glowColor || 'rgba(0,0,0,.6)'; ctx.shadowBlur = o.glow; }
+  ctx.fillStyle = o.fill || o.color || '#fff';
+  ctx.fillText(s, xx, y);
+  ctx.restore();
+}
+function measure(s, o) { ctx.save(); setFont(o); if ('letterSpacing' in ctx) ctx.letterSpacing = (o.spacing || 0) + 'px'; const w = ctx.measureText(s).width; ctx.restore(); return w; }
+function wipe(s, x, y, p, o) {
+  if (p <= 0) return;
+  const w = measure(s, o), al = o.align || 'center';
+  const x0 = al === 'left' ? x : al === 'right' ? x - w : x - w / 2;
+  const e = eo3(p);
+  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 30, y - o.size * 1.3, (w + 60) * e, o.size * 2.6); ctx.clip();
+  txt(s, x, y, { ...o, alpha: (o.alpha ?? 1) * clamp(p * 3) });
+  ctx.restore();
+  if (p < 1) { A((o.alpha ?? 1) * .9 * (1 - p)); ctx.fillStyle = o.edge || GOLD2; ctx.fillRect(x0 - 30 + (w + 60) * e, y - o.size * .6, 3, o.size * 1.2); }
+}
+function revealTxt(s, x, y, p, o) {
+  if (p <= 0) return;
+  const chars = [...s];
+  ctx.save(); setFont(o); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  const ws = chars.map(c => ctx.measureText(c).width), sp = o.spacing || 0;
+  const tot = ws.reduce((a, b) => a + b, 0) + sp * (chars.length - 1);
+  let cx = x - tot / 2; const n = chars.length;
+  if (o.glow) { ctx.shadowColor = o.glowColor || 'rgba(255,200,80,.8)'; ctx.shadowBlur = o.glow; }
+  ctx.fillStyle = o.fill || '#fff';
+  for (let i = 0; i < n; i++) {
+    const st = n > 1 ? .6 * i / (n - 1) : 0;
+    const e = eo3(clamp((p - st) / .4));
+    if (e > 0) { ctx.globalAlpha = clamp(SA * (o.alpha ?? 1) * e); ctx.fillText(chars[i], cx, y + (1 - e) * o.size * .35); }
+    cx += ws[i] + sp;
+  }
+  ctx.restore();
+}
+
+// ---------- shapes ----------
+function goldGrad(y0, y1) { const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, '#fff6d0'); g.addColorStop(.45, '#f5c850'); g.addColorStop(.72, '#b97d1c'); g.addColorStop(1, '#ffe39a'); return g; }
+function vgrad(y0, y1, stops) { const g = ctx.createLinearGradient(0, y0, 0, y1); stops.forEach(([o, c]) => g.addColorStop(o, c)); return g; }
+function rect(x, y, w, h, style, a = 1) { A(a); ctx.fillStyle = style; ctx.fillRect(x, y, w, h); }
+function bgRadial(c1, c2, cx = 960, cy = 540, r = 1250) { const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r); g.addColorStop(0, c1); g.addColorStop(1, c2); rect(0, 0, W, H, g); }
+function glow(x, y, r, rgb, a) {
+  if (a <= 0 || r <= 0) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(.4, `rgba(${rgb},${a * .35})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  A(1); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+}
+function circle(x, y, r, style, a = 1) { A(a); ctx.fillStyle = style; ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2); ctx.fill(); }
+function ring(x, y, r, style, lw, a) { if (a <= 0) return; A(a); ctx.strokeStyle = style; ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2); ctx.stroke(); }
+function rays(cx, cy, rot, n, rgb, a, len = 1700, width = .4) {
+  if (a <= 0) return;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, len);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  A(1); ctx.fillStyle = g; ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const a0 = rot + i * Math.PI * 2 / n, a1 = a0 + Math.PI * 2 / n * width;
+    ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a0) * len, cy + Math.sin(a0) * len); ctx.lineTo(cx + Math.cos(a1) * len, cy + Math.sin(a1) * len); ctx.closePath();
+  }
+  ctx.fill();
+}
+function tricolor(cx, y, w, h, a = 1) {
+  if (w <= 0) return; A(a); const x0 = cx - w / 2;
+  ctx.fillStyle = YEL; ctx.fillRect(x0, y, w / 2, h);
+  ctx.fillStyle = BLU; ctx.fillRect(x0 + w / 2, y, w / 4, h);
+  ctx.fillStyle = RED; ctx.fillRect(x0 + w * .75, y, w / 4, h);
+}
+function ridgeY(x, seed, amp) {
+  return amp * (.55 * (1 - Math.abs(Math.sin(x * .0021 + seed * 1.3))) + .3 * (1 - Math.abs(Math.sin(x * .0053 + seed * 2.7))) + .15 * (1 - Math.abs(Math.sin(x * .013 + seed * 5.1))));
+}
+function ridgeLayer(base, amp, seed, fill, scroll = 0, a = 1) {
+  A(a); ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 12) ctx.lineTo(x, base - ridgeY(x + scroll, seed, amp));
+  ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+}
+function hillY(x, base, amp, f, ph) { return base - amp * (.5 + .5 * Math.sin(x * f + ph)) - amp * .35 * Math.sin(x * f * 2.3 + ph * 1.7); }
+function hillLayer(base, amp, f, ph, col) {
+  A(1); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 16) ctx.lineTo(x, hillY(x, base, amp, f, ph));
+  ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+}
+function stars(t, a, maxY = 560) {
+  if (a <= 0) return;
+  ctx.fillStyle = '#fff';
+  for (let i = 0; i < 160; i++) {
+    const x = hash(i) * W, y = hash(i + .31) * maxY, tw = .4 + .6 * Math.abs(Math.sin(t * (1 + hash(i + 2) * 2) + i));
+    A(a * tw * (.3 + .7 * hash(i + 5))); ctx.fillRect(x, y, 1.6 + hash(i + 7) * 1.6, 1.6 + hash(i + 7) * 1.6);
+  }
+}
+function rain(t, a, n = 280, slant = .22, speed = 1500) {
+  if (a <= 0) return;
+  A(a); ctx.strokeStyle = 'rgb(200,214,235)'; ctx.lineWidth = 1.3; ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const L = 18 + hash(i + 503) * 26, sp = speed * (.8 + hash(i + 502) * .4);
+    const y = ((hash(i + 501) * (H + 60) + t * sp) % (H + 60)) - 30, x = ((hash(i + 500) * (W + 300) + t * sp * slant) % (W + 300)) - 150;
+    ctx.moveTo(x, y); ctx.lineTo(x - L * slant, y - L);
+  }
+  ctx.stroke();
+}
+function candle(x, y, s, t, seed) {
+  const f = .85 + .15 * Math.sin(t * 13 + seed * 7) * Math.sin(t * 7.3 + seed);
+  glow(x, y - 52 * s, 70 * s * f, '255,180,80', .5);
+  rect(x - 6 * s, y - 42 * s, 12 * s, 42 * s, '#e9dfc9', 1);
+  A(1); ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.ellipse(x + Math.sin(t * 9 + seed) * 1.2 * s, y - 52 * s, 3.6 * s, 10 * s * f, 0, 0, Math.PI * 2); ctx.fill();
+  A(.9); ctx.fillStyle = '#fff6d8'; ctx.beginPath(); ctx.ellipse(x, y - 49 * s, 1.6 * s, 4 * s, 0, 0, Math.PI * 2); ctx.fill();
+}
+function smokeColumn(x, base, t, seed, sc, rgb, a) {
+  for (let k = 0; k < 12; k++) {
+    const age = (t * .1 + k / 12 + hash(seed + k) * .04) % 1, y = base - age * 620 * sc, xx = x + Math.sin(age * 5 + seed) * 40 * sc * age + age * 160 * sc;
+    glow(xx, y, (40 + age * 240) * sc, rgb, a * (1 - age) * .75);
+  }
+}
+function firework(cx, cy, d, rgb, seed) {
+  if (d < 0 || d > 2.4) return;
+  ctx.globalCompositeOperation = 'lighter';
+  glow(cx, cy, 260, rgb, .45 * Math.max(0, 1 - d * 1.6));
+  for (let i = 0; i < 46; i++) {
+    const an = i / 46 * Math.PI * 2 + hash(seed + i) * .2, sp = 280 * (.65 + hash(seed + i + 1) * .5), r = sp * (1 - Math.exp(-d * 2.4));
+    circle(cx + Math.cos(an) * r, cy + Math.sin(an) * r + 55 * d * d, 2.8 * (1 - d / 2.4) + .6, `rgb(${rgb})`, 1 - d / 2.4);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+function searchlight(x, y, ang, len, a) {
+  const g = ctx.createLinearGradient(x, y, x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+  g.addColorStop(0, `rgba(230,240,255,${a})`); g.addColorStop(1, 'rgba(230,240,255,0)');
+  A(1); ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - 8, y);
+  ctx.lineTo(x + Math.cos(ang - .07) * len, y + Math.sin(ang - .07) * len); ctx.lineTo(x + Math.cos(ang + .07) * len, y + Math.sin(ang + .07) * len); ctx.lineTo(x + 8, y); ctx.fill();
+}
+function rose(x, y, s, rot, a) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s); A(a);
+  ctx.strokeStyle = '#2e5a2e'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(10, 60, 0, 130); ctx.stroke();
+  ctx.fillStyle = '#3d7a3d'; ctx.beginPath(); ctx.ellipse(12, 62, 15, 6, .6, 0, Math.PI * 2); ctx.fill();
+  for (let k = 0; k < 7; k++) { const a2 = k / 7 * Math.PI * 2; ctx.fillStyle = k % 2 ? '#f4f1ea' : '#ddd7cb'; ctx.beginPath(); ctx.ellipse(Math.cos(a2) * 9, -6 + Math.sin(a2) * 6, 15, 10, a2, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = '#fffdf7'; ctx.beginPath(); ctx.ellipse(0, -12, 11, 9, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+// silhouette crowd; options: umbrellas, flags, bob, n
+function crowd(y, t, seed, col, o = {}) {
+  const n = o.n || 46;
+  for (let i = 0; i < n; i++) {
+    const x = (i + .5) / n * (W + 120) - 60 + (hash(seed + i) - .5) * 26;
+    const hy = y - hash(seed + i + .3) * 40 + Math.sin(t * 2.4 + i) * (o.bob || 0);
+    A(1); ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, hy, 14 + hash(i + seed) * 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, hy + 52, 30, 36, 0, Math.PI, 0); ctx.fill(); ctx.fillRect(x - 30, hy + 52, 60, H - hy);
+    if (o.umbrellas && hash(seed + i + 9) > .4) { ctx.beginPath(); ctx.arc(x + 6, hy - 22, 40, Math.PI, 0); ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x + 6, hy - 22); ctx.lineTo(x + 6, hy + 20); ctx.stroke(); }
+    if (o.flags && hash(seed + i + 7) > .55) {
+      const px = x + 16, top = hy - 120 - hash(i + 3) * 40;
+      ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(px, hy + 30); ctx.lineTo(px, top); ctx.stroke();
+      [[YEL, 0, 22], [BLU, 22, 11], [RED, 33, 11]].forEach(([c, oo, h]) => {
+        ctx.fillStyle = c; ctx.beginPath();
+        for (let k = 0; k <= 8; k++) { const q = k / 8; ctx.lineTo(px + q * 64, top + oo + Math.sin(t * 6 + q * 4 + i) * 6 * q); }
+        for (let k = 8; k >= 0; k--) { const q = k / 8; ctx.lineTo(px + q * 64, top + oo + h + Math.sin(t * 6 + q * 4 + i) * 6 * q); }
+        ctx.fill();
+      });
+    }
+  }
+}
+// neoclassical colonnade (Capitolio Nacional style)
+function colonnade(cx, base, w, h, col, lit, a = 1) {
+  const top = base - h, n = 14, cw = w / n;
+  if (lit) { const g = ctx.createLinearGradient(0, top, 0, base); g.addColorStop(0, `rgba(${lit},.25)`); g.addColorStop(1, `rgba(${lit},.7)`); rect(cx - w / 2, top + h * .15, w, h * .85, g, a); }
+  A(a); ctx.fillStyle = col;
+  ctx.fillRect(cx - w / 2 - 40, base - 18, w + 80, 18); ctx.fillRect(cx - w / 2 - 20, base - 32, w + 40, 14);
+  ctx.fillRect(cx - w / 2, top, w, h * .15); ctx.fillRect(cx - w / 2 - 12, top - 14, w + 24, 14);
+  for (let i = 0; i < n; i++) { const x = cx - w / 2 + i * cw + cw * .22; ctx.fillRect(x, top + h * .15, cw * .5, h * .85 - 32); ctx.fillRect(x - cw * .08, top + h * .15, cw * .66, 10); ctx.fillRect(x - cw * .08, base - 44, cw * .66, 12); }
+}
+
+// ---------- Colombia & Panama (stylised outlines, lon/lat) ----------
+const COL = [[-71.67, 12.46], [-71.32, 11.85], [-72.25, 11.15], [-72.9, 10.45], [-73.05, 9.3], [-72.75, 8.75], [-72.45, 8.2], [-72.4, 7.4], [-71.2, 7.0], [-70.1, 6.97], [-69.4, 6.1], [-67.85, 6.3], [-67.5, 5.2], [-67.8, 4.2], [-67.4, 3.3], [-67.6, 2.8], [-67.3, 2.0], [-66.87, 1.22], [-67.9, 1.5], [-69.8, 1.7], [-69.85, 1.07], [-69.2, .6], [-70.05, .55], [-70.05, -.15], [-69.45, -1.1], [-69.95, -4.22], [-70.7, -3.8], [-70.05, -2.7], [-70.9, -2.2], [-72.0, -2.4], [-73.2, -1.8], [-73.6, -1.2], [-74.8, -.2], [-75.3, -.1], [-75.8, .1], [-76.4, .4], [-77.4, .4], [-77.7, .85], [-78.85, 1.45], [-78.7, 1.8], [-78.4, 2.6], [-77.9, 2.7], [-77.4, 3.6], [-77.1, 3.9], [-77.4, 4.3], [-77.3, 5.6], [-77.5, 6.6], [-77.9, 7.2], [-77.3, 7.9], [-77.36, 8.67], [-76.95, 8.3], [-76.85, 7.95], [-76.73, 8.1], [-76.4, 8.9], [-75.8, 9.4], [-75.6, 9.6], [-75.55, 10.4], [-75.2, 10.8], [-74.8, 11.05], [-74.2, 11.25], [-73.3, 11.3], [-72.9, 11.55], [-72.2, 11.9], [-71.95, 12.2]];
+const PAN = [[-77.36, 8.67], [-77.9, 9.1], [-78.9, 9.45], [-79.6, 9.55], [-80.5, 9.1], [-81.3, 8.8], [-82.2, 9.0], [-82.9, 9.4], [-82.9, 8.2], [-81.7, 7.6], [-80.9, 7.2], [-80.2, 7.4], [-80.4, 8.1], [-79.6, 8.95], [-78.9, 8.6], [-78.3, 8.2], [-77.9, 7.2], [-77.3, 7.9]];
+const mp = (lo, la, cx, cy, sc) => [cx + (lo + 73) * sc, cy - (la - 4.2) * sc];
+function polyPath(poly, cx, cy, sc) { ctx.beginPath(); poly.forEach(([lo, la], i) => { const [x, y] = mp(lo, la, cx, cy, sc); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); }
+function drawMap(cx, cy, sc, o) {
+  const pts = COL.map(([lo, la]) => mp(lo, la, cx, cy, sc));
+  let L = 0; for (let i = 1; i <= pts.length; i++) { const a = pts[i - 1], b = pts[i % pts.length]; L += Math.hypot(b[0] - a[0], b[1] - a[1]); }
+  ctx.save(); polyPath(COL, cx, cy, sc);
+  if (o.fill) { A(o.fill * (o.alpha ?? 1)); ctx.fillStyle = o.fillStyle || GOLD; ctx.fill(); }
+  A(o.alpha ?? 1); ctx.strokeStyle = o.stroke; ctx.lineWidth = o.width || 2; ctx.lineJoin = 'round';
+  if (o.glow) { ctx.shadowColor = o.stroke; ctx.shadowBlur = o.glow; }
+  ctx.setLineDash([L * (o.p ?? 1), L + 100]); ctx.stroke(); ctx.restore();
+}
+function pin(x, y, p, t, year, label, a = 1, lx = x + 18, ly = y) {
+  if (p <= 0) return;
+  const e = eoback(clamp(p * 1.5));
+  circle(x, y, 7 * e, GOLD2, a);
+  const ph = (t * .9) % 1; ring(x, y, 7 + ph * 34, GOLD2, 2, a * (1 - ph) * .8);
+  if (lx !== x + 18 || ly !== y) { const lp = eo3(clamp(p * 2)); A(a * .7); ctx.strokeStyle = GOLD2; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(lerp(x, lx - 10, lp), lerp(y, ly, lp)); ctx.stroke(); }
+  txt(year, lx, ly - 12, { size: 22, weight: 800, color: GOLD2, align: 'left', alpha: a * clamp(p * 2 - .3), spacing: 2 });
+  txt(label, lx, ly + 13, { size: 16, weight: 600, color: '#fff', align: 'left', alpha: a * clamp(p * 2 - .5), spacing: 3 });
+}
+
+// ---------- recurring UI: chapter header, captions, kicker lines, sub-scene sequencing ----------
+// t0 < -1 shows the header already settled (for later scenes of the same chapter)
+function header(lt, num, title, dates, t0 = 0) {
+  const p = prog(lt, t0 + .2, t0 + 1.4); if (p <= 0) return;
+  const x = 110, y = 112;
+  const g = ctx.createRadialGradient(300, 165, 0, 300, 165, 430); g.addColorStop(0, 'rgba(0,0,0,.6)'); g.addColorStop(.6, 'rgba(0,0,0,.3)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  A(p); ctx.fillStyle = g; ctx.fillRect(0, 0, 740, 600);
+  txt('CHAPTER ' + num, x, y, { size: 19, weight: 700, spacing: 8, color: GOLD, align: 'left', alpha: p });
+  wipe(title, x, y + 46, prog(lt, t0 + .4, t0 + 1.6), { size: 50, font: 'Cinzel', weight: 700, color: '#fff', align: 'left' });
+  txt(dates, x, y + 94, { size: 22, weight: 300, spacing: 6, color: '#efe2c2', align: 'left', alpha: prog(lt, t0 + .9, t0 + 1.9) });
+  rect(x, y + 120, 380 * eo3(prog(lt, t0 + .3, t0 + 1.8)), 2, GOLD, p);
+}
+function caption(t, a, b, s, y = 985) {
+  const al = clamp((t - a) / .5) * clamp((b - t) / .5); if (al <= 0) return;
+  const o = { size: 30, weight: 400, spacing: .5 };
+  const w = measure(s, o);
+  const g = ctx.createLinearGradient(960 - w / 2 - 140, 0, 960 + w / 2 + 140, 0);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.18, 'rgba(0,0,0,.72)'); g.addColorStop(.82, 'rgba(0,0,0,.72)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  A(al); ctx.fillStyle = g; ctx.fillRect(960 - w / 2 - 140, y - 32, w + 280, 64);
+  const dy = (1 - eo3(clamp((t - a) / .7))) * 14;
+  txt(s, 960, y + dy, { ...o, color: '#f6edda', alpha: al });
+}
+function kicker(s, x, y, p, col = GOLD2, size = 24, gc = 'rgba(0,0,0,.8)') { txt(s, x, y, { size, weight: 700, spacing: 12, color: col, alpha: p, glow: 12, glowColor: gc }); }
+// Sub-scenes inside one scene, crossfading into each other. parts: [start, end, fn(localTime)]
+function seq(lt, parts, f = .6) {
+  const sa = SA, n = parts.length;
+  parts.forEach(([a, b, fn], i) => {
+    if (i > 0 && lt < a - f / 2) return;
+    if (i < n - 1 && lt >= b + f / 2) return;
+    SA = sa * (i === 0 ? 1 : clamp((lt - (a - f / 2)) / f)) * (i === n - 1 ? 1 : clamp((b + f / 2 - lt) / f));
+    if (SA > 0) fn(lt - a);
+  });
+  SA = sa;
+}
+
+// =====================================================================
+//  SCENES (each draws in local time, starting at 0)
+// =====================================================================
+
+// ---- Intro ------------------------------------------------------------
+function sIntro(t) {
+  bgRadial('#0e1c3f', '#010208', 960, 520, 1100);
+  rays(960, 520, t * .04, 16, '242,193,78', .07 * prog(t, .5, 3));
+  const fl = Math.exp(-Math.pow((t - 1.3) / .8, 2));
+  glow(960, 520, 80 + 700 * fl, '255,214,140', .9 * fl);
+  const fade = 1 - .72 * prog(t, 3.4, 5.4);
+  drawMap(960, 520, 42, { p: eio(prog(t, .6, 5.6)), stroke: GOLD, width: 3, alpha: fade, glow: 16, fill: .1 * prog(t, 4, 5.8) });
+  const [bx, by] = mp(-74.07, 4.71, 960, 520, 42), bp = prog(t, 2.2, 3);
+  if (bp > 0) { circle(bx, by, 6, GOLD2, bp * fade); const ph = (t * .8) % 1; ring(bx, by, 6 + ph * 40, GOLD2, 2, bp * fade * (1 - ph)); }
+  revealTxt('COLOMBIA', 960, 480, prog(t, 3.2, 5.6), { size: 200, font: 'Cinzel', weight: 900, spacing: 22, fill: goldGrad(380, 580), glow: 34, glowColor: 'rgba(255,170,40,.75)' });
+  tricolor(960, 610, 760 * eo3(prog(t, 5.2, 6.6)), 7);
+  wipe('A HISTORY OF GOLD, FIRE AND HOPE', 960, 675, prog(t, 5.8, 7.4), { size: 30, weight: 600, spacing: 14, color: '#f6ead0' });
+}
+
+// ---- I. The Ancient Ones -------------------------------------------------
+function muiscaFigure(x, y, s) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(11, 0); ctx.lineTo(7, -40); ctx.lineTo(-7, -40); ctx.closePath(); ctx.fill();
+  ctx.fillRect(-7, -55, 14, 14);
+  ctx.beginPath(); for (let i = 0; i < 7; i++) { const a = -Math.PI + .25 + i * (Math.PI - .5) / 6; ctx.moveTo(0, -56); ctx.lineTo(Math.cos(a - .09) * 26, -56 + Math.sin(a - .09) * 26); ctx.lineTo(Math.cos(a + .09) * 26, -56 + Math.sin(a + .09) * 26); ctx.closePath(); } ctx.fill();
+  ctx.fillRect(-18, -34, 36, 4);
+  ctx.restore();
+}
+function drawRaft(x, y, s, a) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); A(a);
+  ctx.fillStyle = goldGrad(-110, 25);
+  ctx.shadowColor = 'rgba(255,190,70,.8)'; ctx.shadowBlur = 30;
+  ctx.beginPath(); ctx.moveTo(-175, 0); ctx.lineTo(175, 0); ctx.lineTo(152, 22); ctx.lineTo(-152, 22); ctx.closePath(); ctx.fill();
+  [-140, -100, -60, 60, 100, 140].forEach(fx => muiscaFigure(fx, 0, .62));
+  muiscaFigure(0, 0, 1.25);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(90,50,5,.6)'; ctx.lineWidth = 2;
+  for (let i = -150; i <= 150; i += 20) { ctx.beginPath(); ctx.moveTo(i, 2); ctx.lineTo(i * .98, 21); ctx.stroke(); }
+  ctx.restore();
+}
+function sAncient(lt) {
+  rect(0, 0, W, 660, vgrad(0, 660, [[0, '#0d0a24'], [.5, '#3b1d3f'], [.84, '#b4552a'], [1, '#f0a24a']]));
+  stars(lt, .7 * (1 - prog(lt, 0, 10)));
+  const sy = 615 - 60 * eo3(prog(lt, 0, 15));
+  glow(960, sy, 520, '255,170,80', .55); circle(960, sy, 72, '#ffd98a', .95);
+  ridgeLayer(620, 230, 1, '#2a1733', lt * 4);
+  ridgeLayer(640, 150, 2, '#1c1026', lt * 8);
+  ridgeLayer(655, 90, 3, '#120a18', lt * 12);
+  rect(0, 650, W, H - 650, vgrad(650, H, [[0, '#2a1f33'], [1, '#05070e']]));
+  ctx.fillStyle = '#ffc36b';
+  for (let i = 0; i < 44; i++) { const y = 656 + i * 9, w = (70 + i * 7) * (.55 + .45 * Math.sin(lt * 3 + i * 1.7)); A(.35 * (1 - i / 44)); ctx.fillRect(960 - w / 2 + Math.sin(lt * 2 + i) * 8, y, w, 2); }
+  for (let k = 0; k < 5; k++) { const ph = (lt * .3 + k / 5) % 1, r = 120 + ph * 760; A((1 - ph) * .3); ctx.strokeStyle = GOLD; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(960, 792, r, r * .16, 0, 0, Math.PI * 2); ctx.stroke(); }
+  const bob = Math.sin(lt * 1.4) * 5;
+  ctx.save(); ctx.translate(0, 1580 + bob * 2); ctx.scale(1, -1); drawRaft(960, 790 + bob, 1.25, .22); ctx.restore();
+  drawRaft(960, 770 + bob, 1.25, 1);
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 70; i++) {
+    const age = (lt * .45 + hash(i)) % 1, x = 960 + (hash(i + 1) - .5) * 360 + Math.sin(age * 6 + i) * 10, y = 700 + age * 170;
+    circle(x, y, 1.5 + hash(i + 2) * 2.5, '#ffd36b', (1 - age) * .9 * prog(lt, .5, 2));
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  header(lt, 'I', 'THE ANCIENT ONES', 'BEFORE 1500');
+  ['MUISCA', 'TAYRONA', 'ZENÚ', 'SAN AGUSTÍN'].forEach((s, i) => {
+    const p = prog(lt, 1.6 + i * .8, 2.6 + i * .8) * (1 - .6 * prog(lt, 7.5, 8.5));
+    if (p <= 0) return; const y = 150 + i * 58;
+    A(p); ctx.fillStyle = GOLD; ctx.save(); ctx.translate(1560, y); ctx.rotate(Math.PI / 4); ctx.fillRect(-5, -5, 10, 10); ctx.restore();
+    txt(s, 1585 + (1 - eo3(p)) * 30, y, { size: 32, font: 'Cinzel', weight: 700, color: '#ffe7b0', align: 'left', alpha: p, spacing: 3 });
+  });
+  revealTxt('EL DORADO', 960, 330, prog(lt, 7.6, 9.4), { size: 120, font: 'Cinzel', weight: 900, spacing: 14, fill: goldGrad(270, 390), glow: 40, glowColor: 'rgba(255,170,50,.9)' });
+  caption(lt, 1.8, 7.2, 'Long before Europeans arrived, great civilizations flourished in these lands');
+  caption(lt, 7.8, 14.7, 'At Lake Guatavita, Muisca rulers offered gold to the gods: the birth of El Dorado');
+}
+
+// ---- II. The Conquest (16th-century naos under a moonlit sky) ----------------------
+function drawNao(x, y, s, rot, t, a = 1) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s); A(a);
+  const ink = '#06080c';
+  const masts = [[-150, 232], [-10, 342], [120, 300]];
+  ctx.fillStyle = ink;
+  masts.forEach(([mx, h]) => { ctx.beginPath(); ctx.moveTo(mx - 5, -40); ctx.lineTo(mx - 2, -h); ctx.lineTo(mx + 2, -h); ctx.lineTo(mx + 5, -40); ctx.fill(); });
+  ctx.strokeStyle = ink; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(222, -70); ctx.lineTo(342, -132); ctx.stroke();
+  const bl = 16 + Math.sin(t * 1.3) * 3;
+  const sail = (x0, x1, top, h, belly) => {
+    const g = ctx.createLinearGradient(x1, top, x0, top + h);
+    g.addColorStop(0, 'rgba(142,151,168,.95)'); g.addColorStop(.4, 'rgba(76,83,98,.96)'); g.addColorStop(1, 'rgba(22,25,32,.97)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x0, top); ctx.lineTo(x1, top);
+    ctx.quadraticCurveTo(x1 + belly, top + h * .55, x1 - 3, top + h); ctx.quadraticCurveTo((x0 + x1) / 2 + belly * .3, top + h + belly * .5, x0 + 3, top + h);
+    ctx.quadraticCurveTo(x0 + belly * .7, top + h * .55, x0, top); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.26)'; ctx.lineWidth = 1;
+    for (let k = 1; k < 6; k++) { const xx = x0 + (x1 - x0) * k / 6; ctx.beginPath(); ctx.moveTo(xx, top + 2); ctx.quadraticCurveTo(xx + belly * .8, top + h * .55, xx + 1, top + h + belly * .3); ctx.stroke(); }
+    ctx.strokeStyle = ink; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x0 - 10, top); ctx.lineTo(x1 + 10, top); ctx.stroke();
+  };
+  sail(-95, 75, -168, 116, bl);
+  sail(-70, 50, -292, 106, bl * .8);
+  sail(55, 185, -152, 100, bl);
+  sail(72, 168, -264, 90, bl * .8);
+  sail(266, 326, -114, 42, bl * .5);
+  { const g = ctx.createLinearGradient(-150, -230, -150, -40); g.addColorStop(0, 'rgba(132,141,158,.94)'); g.addColorStop(1, 'rgba(26,29,36,.97)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-95, -228); ctx.quadraticCurveTo(-120 + bl, -150, -95, -60); ctx.lineTo(-215, -82); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-88, -240); ctx.lineTo(-226, -70); ctx.stroke(); }
+  ctx.strokeStyle = 'rgba(110,20,24,.32)'; ctx.lineWidth = 5; ctx.beginPath();
+  ctx.moveTo(-52, -144); ctx.quadraticCurveTo(-10 + bl * .5, -112, 30, -74); ctx.moveTo(30, -144); ctx.quadraticCurveTo(-10 + bl * .5, -112, -52, -74); ctx.stroke();
+  ctx.fillStyle = ink; ctx.fillRect(-26, -180, 32, 10); ctx.fillRect(104, -166, 32, 9);
+  ctx.strokeStyle = 'rgba(6,8,12,.9)'; ctx.lineWidth = 1.2; ctx.beginPath();
+  masts.forEach(([mx, h]) => { for (const d of [-34, -20, 20, 34]) { ctx.moveTo(mx, -h * .62); ctx.lineTo(mx + d, -52); } });
+  ctx.moveTo(-10, -342); ctx.lineTo(120, -300); ctx.lineTo(338, -130);
+  ctx.moveTo(-10, -342); ctx.lineTo(-150, -232); ctx.lineTo(-252, -112);
+  ctx.moveTo(120, -300); ctx.lineTo(232, -74);
+  ctx.stroke();
+  ctx.lineWidth = .8; ctx.beginPath();
+  masts.forEach(([mx, h]) => { for (let k = 1; k < 9; k++) { const q = k / 9, yy = lerp(-52, -h * .62, q), dx = lerp(34, 0, q); ctx.moveTo(mx - dx, yy); ctx.lineTo(mx - dx * .45, yy); ctx.moveTo(mx + dx * .45, yy); ctx.lineTo(mx + dx, yy); } });
+  ctx.stroke();
+  masts.forEach(([mx, h], i) => {
+    ctx.fillStyle = i === 1 ? '#6e1216' : '#15100e'; ctx.beginPath(); ctx.moveTo(mx, -h);
+    for (let k = 0; k <= 10; k++) { const q = k / 10; ctx.lineTo(mx + q * 74, -h + 3 + Math.sin(t * 5 + q * 5 + i) * 6 * q); }
+    for (let k = 10; k >= 0; k--) { const q = k / 10; ctx.lineTo(mx + q * 74, -h + 3 + Math.sin(t * 5 + q * 5 + i) * 6 * q + 9 * (1 - q)); }
+    ctx.fill();
+  });
+  const hg = ctx.createLinearGradient(0, -112, 0, 30); hg.addColorStop(0, '#1b1e26'); hg.addColorStop(.5, '#0b0d12'); hg.addColorStop(1, '#040507');
+  ctx.fillStyle = hg; ctx.beginPath();
+  ctx.moveTo(-262, -112); ctx.lineTo(-160, -104); ctx.lineTo(-150, -62); ctx.quadraticCurveTo(0, -48, 150, -60); ctx.lineTo(160, -86); ctx.lineTo(236, -82); ctx.lineTo(264, -62);
+  ctx.quadraticCurveTo(250, -8, 196, 24); ctx.quadraticCurveTo(0, 36, -178, 26); ctx.quadraticCurveTo(-246, 4, -262, -112); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(150,165,190,.16)'; ctx.lineWidth = 1.5;
+  for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.moveTo(-250 + k * 6, -72 + k * 20); ctx.quadraticCurveTo(0, -42 + k * 20, 252 - k * 12, -52 + k * 18); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; for (let k = 0; k < 7; k++) ctx.fillRect(-120 + k * 38, -36, 12, 9);
+  ctx.strokeStyle = 'rgba(190,205,230,.55)'; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.moveTo(-262, -112); ctx.lineTo(-160, -104); ctx.moveTo(-150, -62); ctx.quadraticCurveTo(0, -48, 150, -60); ctx.moveTo(160, -86); ctx.lineTo(236, -82); ctx.lineTo(264, -62); ctx.stroke();
+  glow(-232, -94, 70, '255,180,90', .55 * a);
+  A(a); ctx.fillStyle = '#ffcf7a'; ctx.fillRect(-248, -98, 8, 7); ctx.fillRect(-234, -98, 8, 7); ctx.fillRect(-220, -98, 8, 7);
+  ctx.restore();
+}
+function naoOnSea(x, y, s, t, i) {
+  const rot = Math.sin(t * 1.1 + i * 2) * .025, bob = Math.sin(t * 1.3 + i) * 6 * s;
+  ctx.save(); ctx.translate(0, 2 * (y + bob) + 40 * s); ctx.scale(1, -1); drawNao(x, y + bob, s, -rot, t, .13); ctx.restore();
+  drawNao(x, y + bob, s, rot, t, 1);
+  A(.5); ctx.strokeStyle = 'rgba(200,215,235,.55)'; ctx.lineWidth = 2 * s;
+  for (let k = 0; k < 6; k++) { const L = (140 + k * 90) * s; ctx.beginPath(); ctx.moveTo(x - 180 * s, y + bob + 26 * s + k * 3 * s); ctx.quadraticCurveTo(x - 180 * s - L * .5, y + bob + 30 * s + k * 6 * s, x - 180 * s - L, y + bob + 26 * s + k * 10 * s); ctx.stroke(); }
+  for (let k = 0; k < 14; k++) { const age = (t * 1.2 + hash(i * 30 + k)) % 1; circle(x + 250 * s + age * 40 * s, y + bob + 10 * s - Math.sin(age * Math.PI) * 30 * s, 2 * s, '#dfe7f3', (1 - age) * .6); }
+}
+function fogBand(y, h, a, rgb = '120,140,170') { rect(0, y - h / 2, W, h, vgrad(y - h / 2, y + h / 2, [[0, `rgba(${rgb},0)`], [.5, `rgba(${rgb},${a})`], [1, `rgba(${rgb},0)`]])); }
+function sConquest(lt) {
+  rect(0, 0, W, 645, vgrad(0, 645, [[0, '#03060d'], [.55, '#121d33'], [1, '#34465f']]));
+  stars(lt, .35, 420);
+  glow(1000, 190, 420, '170,195,255', .22); circle(1000, 190, 36, '#e3e9f5', .9);
+  for (let i = 0; i < 10; i++) {
+    const x = ((hash(i) * 2700 - lt * 18 * (.5 + hash(i + 3))) % 2700 + 2700) % 2700 - 380, y = 70 + hash(i + 5) * 380, r = 240 + hash(i + 9) * 200;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(10,15,28,.8)'); g.addColorStop(.6, 'rgba(10,15,28,.45)'); g.addColorStop(1, 'rgba(10,15,28,0)');
+    A(1); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+    if (Math.abs(x - 1000) < 400 && Math.abs(y - 190) < 260) glow(x - 40, y - r * .35, r * .5, '190,205,235', .08);
+  }
+  rect(0, 640, W, H - 640, vgrad(640, H, [[0, '#1c2b42'], [.3, '#0c1626'], [1, '#03060b']]));
+  ctx.fillStyle = '#d4dcec';
+  for (let i = 0; i < 140; i++) {
+    const y = 646 + Math.pow(hash(i + 40), 1.6) * 430, spread = 25 + (y - 640) * .5, x = 1000 + (hash(i + 41) - .5) * spread * 2 + Math.sin(lt * 2 + i) * 6, w = 5 + hash(i + 42) * 24 * (y - 600) / 400;
+    A(.45 * (.3 + .7 * Math.abs(Math.sin(lt * 3 + i * 1.7)))); ctx.fillRect(x, y, w, 1.6);
+  }
+  for (let k = 0; k < 26; k++) {
+    const q = k / 25, y0 = 642 + Math.pow(q, 1.7) * 440, amp = 1.5 + q * 9, f = .009 - q * .005, sp = .7 + q * .8;
+    A(.05 + .13 * q); ctx.strokeStyle = 'rgb(140,168,205)'; ctx.lineWidth = .8 + q * 1.4; ctx.beginPath();
+    for (let x = 0; x <= W; x += 20) { const y = y0 + Math.sin(x * f + lt * sp + k * 1.3) * amp + Math.sin(x * f * 2.6 - lt * sp * .6 + k) * amp * .4; x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+  }
+  fogBand(648, 60, .35);
+  naoOnSea(760 + lt * 12, 668, .3, lt, 0);
+  fogBand(690, 80, .22);
+  naoOnSea(300 + lt * 18, 738, .55, lt, 1);
+  fogBand(760, 90, .12);
+  naoOnSea(-170 + lt * 26, 885, .95, lt, 2);
+  const K = [[0, 1499], [3.5, 1499], [5.5, 1525], [7, 1525], [8.5, 1533], [9.5, 1533], [11.5, 1538]];
+  let yr = 1538; for (let i = 0; i < K.length - 1; i++) if (lt >= K[i][0] && lt < K[i + 1][0]) { yr = lerp(K[i][1], K[i + 1][1], eio((lt - K[i][0]) / (K[i + 1][0] - K[i][0]))); break; }
+  if (lt < 0) yr = 1499;
+  const cp = prog(lt, .2, 1.2);
+  txt(String(Math.round(yr)), 590, 385, { size: 190, font: 'Cinzel', weight: 900, fill: goldGrad(290, 480), glow: 30, glowColor: 'rgba(255,170,40,.5)', alpha: cp });
+  txt('ANNO DOMINI', 590, 495, { size: 20, weight: 600, spacing: 14, color: '#d9cfae', alpha: cp * .8 });
+  const ma = prog(lt, .3, 1.5), MX = 1450, MY = 580, MS = 32;
+  drawMap(MX, MY, MS, { p: 1, stroke: 'rgba(242,193,78,.6)', width: 2, fill: .08, alpha: ma });
+  const route = [[-74.2, 11.24], [-74.75, 10.9], [-74.85, 9.3], [-74.4, 8.0], [-74.2, 6.9], [-74.6, 5.9], [-74.07, 4.71]].map(([a, b]) => mp(a, b, MX, MY, MS));
+  const rp = prog(lt, 9.6, 11.6);
+  if (rp > 0) {
+    let L = 0; for (let i = 1; i < route.length; i++) L += Math.hypot(route[i][0] - route[i - 1][0], route[i][1] - route[i - 1][1]);
+    ctx.save(); A(.9); ctx.strokeStyle = GOLD2; ctx.lineWidth = 2.5; ctx.setLineDash([L * rp, L + 10]); ctx.beginPath(); route.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); ctx.restore();
+  }
+  [[-72.15, 12.2, .8, '1499', 'LA GUAJIRA', 1690, 250], [-74.2, 11.24, 5.4, '1525', 'SANTA MARTA', 1690, 320], [-75.51, 10.39, 8.2, '1533', 'CARTAGENA', 1690, 390], [-74.07, 4.71, 11.4, '1538', 'BOGOTÁ', 1690, 560]].forEach(([lo, la, st, y, l, lx, ly]) => {
+    const [x, yy] = mp(lo, la, MX, MY, MS); pin(x, yy, prog(lt, st, st + .8), lt, y, l, ma, lx, ly);
+  });
+  header(lt, 'II', 'THE CONQUEST', '1499 – 1538');
+  caption(lt, .6, 5, '1499: Spanish ships reach the shores of La Guajira');
+  caption(lt, 5.4, 9.4, 'Santa Marta (1525) and Cartagena (1533) rise on the Caribbean coast');
+  caption(lt, 9.8, 14.8, '1538: Gonzalo Jiménez de Quesada founds Santa Fe de Bogotá');
+}
+
+// ---- III. The Colony ------------------------------------------------------
+function fern(x, y, len, p, sway) {
+  if (p <= 0) return;
+  ctx.save(); ctx.translate(x, y); A(.9); ctx.strokeStyle = '#1f4a2a'; ctx.fillStyle = '#2d6b3a'; ctx.lineWidth = 3;
+  const L = len * eo3(p), n = 16;
+  ctx.beginPath(); ctx.moveTo(0, 0);
+  for (let i = 1; i <= n; i++) { const u = i / n; ctx.lineTo(Math.sin(u * 2 + sway) * 30 * u, -L * u); }
+  ctx.stroke();
+  for (let i = 2; i < n; i++) {
+    const u = i / n; if (u > eo3(p)) break;
+    const px = Math.sin(u * 2 + sway) * 30 * u, py = -L * u, s = (1 - u) * 34 + 6;
+    for (const d of [-1, 1]) { ctx.beginPath(); ctx.ellipse(px + d * s * .6, py + 4, s * .6, s * .18, d * .5, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.restore();
+}
+function sColony(lt) {
+  rect(0, 0, W, 800, vgrad(0, 800, [[0, '#1a0b24'], [.35, '#5c1f3a'], [.72, '#c4502e'], [1, '#f5a547']]));
+  glow(1300, 650, 560, '255,160,70', .5); circle(1300, 650, 110, '#ffcf7a', .95);
+  for (let i = 0; i < 7; i++) {
+    const bx = ((i * 260 + lt * 55) % 2200) - 140, by = 180 + hash(i) * 180 + Math.sin(lt * 2 + i) * 8, f = Math.sin(lt * 9 + i) * 7;
+    A(.7); ctx.strokeStyle = '#1b0a12'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(bx - 12, by - f); ctx.quadraticCurveTo(bx - 5, by - 4, bx, by); ctx.quadraticCurveTo(bx + 5, by - 4, bx + 12, by - f); ctx.stroke();
+  }
+  const off = (1 - eo3(prog(lt, 0, 2.2))) * 440;
+  ctx.save(); ctx.translate(0, off);
+  A(1); ctx.fillStyle = '#3a1822';
+  for (let x = 0; x < W; x += 90) { const h = 60 + hash(x) * 70; ctx.fillRect(x, 700 - h, 86, h + 60); ctx.beginPath(); ctx.moveTo(x - 4, 700 - h); ctx.lineTo(x + 43, 700 - h - 26); ctx.lineTo(x + 90, 700 - h); ctx.fill(); }
+  ctx.fillRect(1030, 430, 80, 300); ctx.beginPath(); ctx.moveTo(1022, 430); ctx.lineTo(1070, 360); ctx.lineTo(1118, 430); ctx.fill();
+  ctx.fillRect(1062, 330, 16, 40); ctx.fillRect(1054, 342, 32, 8);
+  ctx.beginPath(); ctx.arc(560, 600, 90, Math.PI, 0); ctx.fill(); ctx.fillRect(470, 600, 180, 120); ctx.fillRect(552, 490, 16, 30);
+  const stone = ctx.createLinearGradient(0, 600, 0, H); stone.addColorStop(0, '#7a4630'); stone.addColorStop(.25, '#4a2a1d'); stone.addColorStop(1, '#170b08');
+  rect(0, 740, W, H - 740, stone);
+  ctx.fillStyle = stone; for (let x = 0; x < W; x += 70) ctx.fillRect(x, 712, 42, 30);
+  [260, 980, 1640].forEach(gx => { ctx.fillRect(gx - 32, 650, 64, 95); ctx.beginPath(); ctx.arc(gx, 652, 34, Math.PI, 0); ctx.fill(); ctx.fillRect(gx - 4, 606, 8, 14); ctx.save(); ctx.fillStyle = '#120806'; ctx.fillRect(gx - 4, 672, 8, 30); ctx.restore(); });
+  A(.6); ctx.strokeStyle = '#ffa257'; ctx.lineWidth = 2;
+  ctx.beginPath(); for (let x = 0; x < W; x += 70) { ctx.moveTo(x, 712); ctx.lineTo(x + 42, 712); } ctx.moveTo(0, 742); ctx.lineTo(W, 742); ctx.stroke();
+  A(.35); ctx.strokeStyle = '#120806'; ctx.lineWidth = 2;
+  for (let y = 772; y < H; y += 34) { const r = Math.round((y - 772) / 34); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); for (let x = (r % 2) * 55; x < W; x += 110) { ctx.moveTo(x, y); ctx.lineTo(x, y + 34); } ctx.stroke(); }
+  rect(0, 900, W, 180, vgrad(900, H, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,.6)']]));
+  ctx.restore();
+  const pa = prog(lt, .8, 1.6);
+  const pg = ctx.createLinearGradient(560, 0, 1600, 0); pg.addColorStop(0, 'rgba(12,4,14,0)'); pg.addColorStop(.12, 'rgba(12,4,14,.62)'); pg.addColorStop(.88, 'rgba(12,4,14,.62)'); pg.addColorStop(1, 'rgba(12,4,14,0)');
+  A(pa); ctx.fillStyle = pg; ctx.fillRect(560, 250, 1040, 400);
+  [['1549', 'The Royal Audiencia is seated in Santa Fe'], ['1717', 'The Viceroyalty of New Granada is created'], ['1741', 'Cartagena withstands a massive British siege'], ['1781', 'The Comuneros rise against colonial taxes'], ['1783', 'Mutis leads the Royal Botanical Expedition']].forEach(([y, s], i) => {
+    const p = prog(lt, 1.2 + i * 1.6, 2.0 + i * 1.6); if (p <= 0) return; const yy = 300 + i * 74;
+    txt(y, 770, yy, { size: 44, font: 'Cinzel', weight: 900, color: GOLD2, align: 'right', alpha: p, glow: 12, glowColor: 'rgba(255,150,40,.6)' });
+    A(p); ctx.fillStyle = GOLD; ctx.save(); ctx.translate(797, yy); ctx.rotate(Math.PI / 4); ctx.fillRect(-5, -5, 10, 10); ctx.restore();
+    wipe(s, 825, yy, p, { size: 28, weight: 400, color: '#fff4df', align: 'left' });
+  });
+  fern(190, 745, 300, prog(lt, 8.2, 11.4), Math.sin(lt) * .15);
+  fern(1780, 745, 240, prog(lt, 8.6, 11.8), Math.sin(lt + 1) * .15 + 3);
+  header(lt, 'III', 'THE COLONY', '1538 – 1810');
+  caption(lt, 10.4, 14.8, 'Three centuries of colonial rule shape the language, faith and cities of the land');
+}
+
+// ---- IV. Independence ------------------------------------------------------
+const SHARDS = Array.from({ length: 48 }, (_, i) => {
+  const cx = (hash(i * 3) - .5) * 210, cy = -170 + hash(i * 3 + 1) * 320, s = 16 + hash(i * 3 + 2) * 30;
+  const pts = [0, 1, 2].map(k => { const a = k * 2.1 + hash(i + k * 7) * 1.2; return [Math.cos(a) * s, Math.sin(a) * s]; });
+  return { cx, cy, pts, col: ['#f5f2ea', '#dfe6f0', '#8aa4c8', '#3b5c99'][i % 4], vx: cx * 4 + (hash(i + 11) - .5) * 500, vy: -300 - hash(i + 13) * 520 + cy * 1.5, w: (hash(i + 17) - .5) * 14 };
+});
+function drawVase(x, y, s, a) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); A(a);
+  ctx.lineWidth = 4; ctx.lineCap = 'round';
+  [[-30, '#d7263d'], [0, '#ffd21f'], [32, '#d7263d']].forEach(([dx, fc], i) => {
+    ctx.strokeStyle = '#2e7d32'; ctx.beginPath(); ctx.moveTo(dx * .3, -160); ctx.quadraticCurveTo(dx, -220, dx * 1.4, -260 - i * 10); ctx.stroke();
+    ctx.fillStyle = fc; for (let k = 0; k < 6; k++) { const an = k * Math.PI / 3; ctx.beginPath(); ctx.ellipse(dx * 1.4 + Math.cos(an) * 11, -260 - i * 10 + Math.sin(an) * 11, 9, 6, an, 0, Math.PI * 2); ctx.fill(); }
+    circle(dx * 1.4, -260 - i * 10, 6, '#3a2400', a);
+  });
+  const g = ctx.createLinearGradient(-120, 0, 120, 0); g.addColorStop(0, '#6f89b0'); g.addColorStop(.45, '#f5f2ea'); g.addColorStop(1, '#6f89b0');
+  A(a); ctx.fillStyle = g; ctx.beginPath();
+  ctx.moveTo(-60, 150); ctx.quadraticCurveTo(-150, 40, -110, -40); ctx.quadraticCurveTo(-60, -110, -42, -140); ctx.lineTo(-70, -170); ctx.lineTo(70, -170); ctx.lineTo(42, -140);
+  ctx.quadraticCurveTo(60, -110, 110, -40); ctx.quadraticCurveTo(150, 40, 60, 150); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#2f4f8f'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.ellipse(0, -10, 118, 16, 0, 0, Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0, -128, 50, 8, 0, 0, Math.PI); ctx.stroke();
+  ctx.lineWidth = 3; ctx.beginPath(); for (let i = -3; i <= 3; i++) { ctx.moveTo(i * 26, 30); ctx.quadraticCurveTo(i * 26 + 12, 60, i * 26, 90); } ctx.stroke();
+  ctx.restore();
+}
+function subVase(u) {
+  bgRadial('#3a0a0e', '#060102');
+  glow(960, 560, 520, '255,200,150', .16);
+  revealTxt('20 JULY 1810', 960, 250, prog(u, .3, 1.6), { size: 84, font: 'Cinzel', weight: 900, spacing: 10, fill: '#fff', glow: 22, glowColor: 'rgba(255,80,60,.8)' });
+  if (u < 2.5) drawVase(960 + prog(u, 1.7, 2.5) * Math.sin(u * 90) * 4, 620, 1 + .03 * u, prog(u, 0, .8));
+  else {
+    const p = u - 2.5;
+    SHARDS.forEach(sh => {
+      const x = 960 + sh.cx + sh.vx * p, y = 620 + sh.cy + sh.vy * p + 950 * p * p;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(sh.w * p); A(1 - prog(p, 1.4, 2.6)); ctx.fillStyle = sh.col;
+      ctx.beginPath(); ctx.moveTo(...sh.pts[0]); ctx.lineTo(...sh.pts[1]); ctx.lineTo(...sh.pts[2]); ctx.closePath(); ctx.fill(); ctx.restore();
+    });
+    ring(960, 620, p * 1300, 'rgba(255,220,180,1)', 6, 1 - prog(p, 0, .8));
+    ring(960, 620, p * 800, 'rgba(255,120,80,1)', 3, 1 - prog(p, 0, 1));
+  }
+  ctx.globalCompositeOperation = 'lighter';
+  const heat = .35 + .65 * prog(u, 2.5, 3.5);
+  for (let i = 0; i < 90; i++) {
+    const age = (u * (.25 + hash(i) * .3) + hash(i + 1)) % 1, x = hash(i + 2) * W + Math.sin(age * 8 + i) * 30, y = H + 20 - age * 1200;
+    circle(x, y, 1.5 + hash(i + 3) * 3, i % 3 ? '#ff6a2a' : '#ffc14a', (1 - age) * heat);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  wipe('THE CRY OF INDEPENDENCE', 960, 860, prog(u, 3, 4.3), { size: 60, font: 'Cinzel', weight: 700, color: '#ffd9a0', spacing: 6 });
+}
+function drawSoldier(x, y, s, ph, flag) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.rotate(-.1);
+  ctx.fillStyle = '#04070c'; ctx.strokeStyle = '#04070c'; ctx.lineCap = 'round';
+  const sw = Math.sin(ph) * .45;
+  ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(0, -32); ctx.lineTo(Math.sin(sw) * 30, -32 + Math.cos(sw) * 32); ctx.moveTo(0, -32); ctx.lineTo(-Math.sin(sw) * 30, -32 + Math.cos(sw) * 32); ctx.stroke();
+  ctx.fillRect(-8, -66, 16, 36); ctx.fillRect(-16, -62, 9, 22);
+  ctx.beginPath(); ctx.arc(1, -74, 7, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(-6, -91, 14, 12);
+  ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(4, -56); ctx.lineTo(20, -114); ctx.stroke();
+  if (flag) {
+    ctx.beginPath(); ctx.moveTo(-4, -40); ctx.lineTo(-4, -152); ctx.stroke();
+    const w = Math.sin(ph * 1.3) * 5;
+    [[YEL, 0, 14], [BLU, 14, 7], [RED, 21, 7]].forEach(([c, o, h]) => { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(-4, -152 + o); ctx.quadraticCurveTo(14, -152 + o + w, 36, -152 + o + w * .6); ctx.lineTo(36, -152 + o + h + w * .6); ctx.quadraticCurveTo(14, -152 + o + h + w, -4, -152 + o + h); ctx.fill(); });
+  }
+  ctx.restore();
+}
+function subAndes(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#0b1424'], [.55, '#2c3d5c'], [1, '#6f82a3']]));
+  const snow = b => vgrad(b - 360, b, [[0, '#f2f6ff'], [.28, '#a8b8d0'], [.6, '#3a4a66'], [1, '#1a2336']]);
+  ridgeLayer(560, 360, 11, snow(560), u * 6);
+  ridgeLayer(650, 260, 12, snow(650), u * 12, .95);
+  ridgeLayer(760, 180, 13, vgrad(580, 760, [[0, '#cfd9ea'], [.4, '#4a5a78'], [1, '#141c2c']]), u * 20);
+  A(1); ctx.fillStyle = '#0c131e'; ctx.beginPath(); ctx.moveTo(0, H); ctx.lineTo(0, 930); ctx.lineTo(W, 610); ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+  A(.7); ctx.strokeStyle = '#c9d6ea'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 930); ctx.lineTo(W, 610); ctx.stroke();
+  for (let i = 0; i < 28; i++) { const s = ((i * 72 + u * 48) % 2016) - 40, y = 930 - (s / W) * 320; A(1); drawSoldier(s, y + 2, .95 + hash(i) * .12, u * 6.5 + i * 1.7, i % 7 === 3); }
+  for (let i = 0; i < 220; i++) { const sp = .5 + hash(i) * 1, x = ((hash(i + 1) * 2200 + u * 700 * sp) % 2200) - 140, y = (hash(i + 2) * H + u * 260 * sp) % H; circle(x, y, .8 + hash(i + 3) * 2.4, '#fff', .35 + .5 * hash(i + 4)); }
+  wipe('1819 · CROSSING THE ANDES', 960, 330, prog(u, .3, 1.3), { size: 62, font: 'Cinzel', weight: 700, color: '#eef4ff', spacing: 6, glow: 18, glowColor: 'rgba(0,0,0,.7)' });
+}
+function saber(rot, s) {
+  ctx.save(); ctx.rotate(rot); ctx.scale(s, s);
+  const g = ctx.createLinearGradient(0, -20, 0, 20); g.addColorStop(0, '#fbfbff'); g.addColorStop(.5, '#aab2c4'); g.addColorStop(1, '#5a6275');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-380, -6); ctx.quadraticCurveTo(0, -30, 400, -4); ctx.quadraticCurveTo(0, -10, -380, 8); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = goldGrad(-40, 40); ctx.fillRect(-392, -26, 14, 52); ctx.beginPath(); ctx.arc(-470, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#3a2410'; ctx.fillRect(-470, -8, 80, 16);
+  ctx.restore();
+}
+function ribbon(yb, u, xm, a = .95) {
+  const step = 10;
+  [[YEL, 0, 56], [BLU, 56, 28], [RED, 84, 28]].forEach(([c, o, h]) => {
+    A(a); ctx.fillStyle = c; ctx.beginPath();
+    for (let x = 0; x <= xm; x += step) { const y = yb + o + Math.sin(x * .006 - u * 3) * 34; x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    for (let x = Math.floor(xm / step) * step; x >= 0; x -= step) ctx.lineTo(x, yb + o + h + Math.sin(x * .006 - u * 3) * 34);
+    ctx.closePath(); ctx.fill();
+  });
+  const shade = ctx.createLinearGradient(0, 0, W, 0);
+  for (let k = 0; k <= 16; k++) { const x = k / 16 * W; shade.addColorStop(k / 16, `rgba(0,0,0,${(.3 * (.5 + .5 * Math.cos(x * .006 - u * 3))).toFixed(3)})`); }
+  A(a); ctx.fillStyle = shade; ctx.beginPath();
+  for (let x = 0; x <= xm; x += step) { const y = yb + Math.sin(x * .006 - u * 3) * 34; x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  for (let x = Math.floor(xm / step) * step; x >= 0; x -= step) ctx.lineTo(x, yb + 112 + Math.sin(x * .006 - u * 3) * 34);
+  ctx.closePath(); ctx.fill();
+}
+function subBoyaca(u) {
+  bgRadial('#6b4200', '#0b0500');
+  rays(960, 520, u * .08, 24, '255,210,90', .24);
+  glow(960, 520, 760, '255,200,80', .35);
+  for (let k = 0; k < 3; k++) { const r = (u - k * .18) * 1500; ring(960, 520, r, 'rgba(255,236,180,1)', 8 - k * 2, (1 - prog(u, k * .18, 1 + k * .18)) * .8); }
+  const sp = eoexp(prog(u, 0, 1.2));
+  ctx.save(); ctx.translate(960, 530); A(.55 * sp); saber(-.42 + (1 - sp) * -.4, .95); saber(Math.PI + .42 + (1 - sp) * .4, .95); ctx.restore();
+  txt('7 AUGUST 1819', 960, 365, { size: 44, weight: 800, spacing: 22, color: '#fff5d6', alpha: prog(u, .4, 1.2) });
+  ctx.save(); ctx.translate(960, 515); const sc = 1.35 - .35 * sp; ctx.scale(sc, sc);
+  txt('BATTLE OF BOYACÁ', 0, 0, { size: 130, font: 'Cinzel', weight: 900, fill: goldGrad(-70, 70), glow: 40, glowColor: 'rgba(40,10,0,.9)', alpha: sp }); ctx.restore();
+  wipe('LIBERTAD Y ORDEN', 960, 640, prog(u, 2, 3), { size: 30, weight: 700, spacing: 30, color: '#fff' });
+  const rv = eio(prog(u, .6, 2.6)); if (rv > 0) ribbon(770, u, W * rv);
+}
+function sIndep(lt) {
+  seq(lt, [[0, 7.5, subVase], [7.5, 12.5, subAndes], [12.5, 22.5, subBoyaca]], .5);
+  header(lt, 'IV', 'INDEPENDENCE', '1810 – 1819');
+  caption(lt, 3.6, 7.4, 'A quarrel over a borrowed flower vase sparks the revolt in Santa Fe de Bogotá');
+  caption(lt, 8, 12.3, 'Bolívar and Santander lead the Liberation Army over the frozen Páramo de Pisba');
+  caption(lt, 14.4, 22.3, 'Victory at the Boyacá bridge seals the independence of New Granada');
+}
+
+// ---- V. Gran Colombia -------------------------------------------------------
+function sGran(lt) {
+  bgRadial('#0f1e44', '#02040c');
+  A(.07); ctx.strokeStyle = '#8fb0ff'; ctx.lineWidth = 1;
+  for (let x = -((lt * 10) % 80); x < W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  const br = eio(prog(lt, 8.75, 11));
+  const N = [
+    { n: 'COLOMBIA', x: 960, y: 580, r: 80, c: '252,209,22', dx: 0, dy: 0 },
+    { n: 'VENEZUELA', x: 1370, y: 450, r: 64, c: '80,140,255', dx: 230, dy: -50 },
+    { n: 'ECUADOR', x: 700, y: 800, r: 56, c: '255,190,80', dx: -280, dy: 30 },
+    { n: 'PANAMÁ', x: 600, y: 420, r: 50, c: '220,70,70', dx: 0, dy: 0 }
+  ].map((d, i) => ({ ...d, X: d.x + d.dx * br, Y: d.y + d.dy * br, p: eoback(prog(lt, .3 + i * .35, 1.1 + i * .35)) }));
+  [[0, 1], [0, 2], [0, 3], [3, 1], [2, 3]].forEach(([a, b], i) => {
+    const p = prog(lt, 1.8 + i * .25, 2.8 + i * .25); if (p <= 0) return;
+    const A1 = N[a], B1 = N[b], broken = !(a === 0 && b === 3), x1 = A1.X, y1 = A1.Y, x2 = B1.X, y2 = B1.Y;
+    ctx.save(); ctx.lineWidth = 3; ctx.strokeStyle = GOLD; ctx.shadowColor = GOLD; ctx.shadowBlur = 14;
+    if (!broken || br <= 0) {
+      A(.85); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(lerp(x1, x2, eo3(p)), lerp(y1, y2, eo3(p))); ctx.stroke();
+      if (p >= 1) { const q = (lt * .6 + i * .23) % 1; circle(lerp(x1, x2, q), lerp(y1, y2, q), 5, '#fff6d0', .9); }
+    } else {
+      const f = .5 * (1 - br); A(.85 * (1 - br * .5));
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(lerp(x1, x2, f), lerp(y1, y2, f)); ctx.moveTo(x2, y2); ctx.lineTo(lerp(x2, x1, f), lerp(y2, y1, f)); ctx.stroke();
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2; ctx.shadowBlur = 0;
+      for (let k = 0; k < 10; k++) { const a2 = hash(i * 10 + k) * 6.28, d = br * 120 * hash(k + i); circle(mx + Math.cos(a2) * d, my + Math.sin(a2) * d, 2.5, '#ffd36b', 1 - br); }
+    }
+    ctx.restore();
+  });
+  N.forEach(nd => {
+    if (nd.p <= 0) return; const r = nd.r * nd.p;
+    glow(nd.X, nd.Y, r * 2.4, nd.c, .45);
+    const g = ctx.createRadialGradient(nd.X - r * .3, nd.Y - r * .3, 0, nd.X, nd.Y, r); g.addColorStop(0, `rgba(${nd.c},1)`); g.addColorStop(1, `rgba(${nd.c},.35)`);
+    circle(nd.X, nd.Y, r, g, .95); ring(nd.X, nd.Y, r + 8, `rgba(${nd.c},1)`, 2, .6);
+    txt(nd.n, nd.X, nd.Y + r + 36, { size: 22, weight: 700, spacing: 6, color: '#fff', alpha: clamp(nd.p) });
+  });
+  revealTxt('GRAN COLOMBIA', 1060, 300, prog(lt, .5, 2), { size: 92, font: 'Cinzel', weight: 900, spacing: 10, fill: goldGrad(250, 350), glow: 30, glowColor: 'rgba(255,170,40,.6)' });
+  header(lt, 'V', 'THE GREAT REPUBLIC', '1819 – 1831');
+  caption(lt, 1.2, 8.4, "Bolívar's dream: one great republic across the north of South America");
+  caption(lt, 9, 12.4, 'By 1831 it split into Venezuela, Ecuador and New Granada, which kept Panama');
+}
+
+// ---- VI. The Republic (timeline) ---------------------------------------------
+function sRepublic(lt) {
+  bgRadial('#2a1d10', '#070503');
+  A(.05); ctx.strokeStyle = '#e8d3a0'; ctx.lineWidth = 1;
+  for (let y = 60; y < H; y += 44) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  const cam = -560 + (lt - 1) * 195, LY = 560;
+  rect(0, LY - 1, W * eo3(prog(lt, 0, 1.2)), 3, GOLD, .7);
+  A(.5); ctx.fillStyle = GOLD;
+  for (let X = Math.floor((cam - 100) / 104) * 104; X < cam + W + 100; X += 104) ctx.fillRect(X - cam, LY - 8, 2, 16);
+  [['1831', 'REPUBLIC OF NEW GRANADA', 'Born from the ruins of Gran Colombia'],
+   ['1851', 'SLAVERY IS ABOLISHED', 'Freedom for all enslaved people from 1852'],
+   ['1858', 'GRANADINE CONFEDERATION', 'A federal experiment'],
+   ['1863', 'UNITED STATES OF COLOMBIA', 'Nine sovereign states, endless civil wars']].forEach(([yr, ti, su], i) => {
+    const sx = 400 + i * 520 - cam; if (sx < -500 || sx > W + 500) return;
+    const focus = 1 - clamp(Math.abs(sx - 960) / 700), ap = prog(lt, .2 + i * .1, 1 + i * .1), up = i % 2 === 0, dir = up ? -1 : 1, a = ap * (.35 + .65 * focus);
+    A(a); ctx.strokeStyle = GOLD2; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, LY); ctx.lineTo(sx, LY + dir * 70); ctx.stroke();
+    glow(sx, LY, 40 + 40 * focus, '255,200,80', .5 * focus * ap);
+    circle(sx, LY, 9 + 6 * focus, GOLD2, ap); ring(sx, LY, 18 + 8 * focus, GOLD2, 2, a * .7);
+    const by = up ? LY - 250 : LY + 130;
+    txt(yr, sx, by + 30, { size: 58 + 16 * focus, font: 'Cinzel', weight: 900, color: GOLD2, alpha: a, glow: 16 * focus, glowColor: 'rgba(255,170,40,.6)' });
+    txt(ti, sx, by + 100, { size: 26, weight: 700, spacing: 3, color: '#fff', alpha: a });
+    txt(su, sx, by + 140, { size: 21, weight: 300, color: '#e9dcc0', alpha: a });
+  });
+  header(lt, 'VI', 'THE REPUBLIC', '1831 – 1886');
+  caption(lt, .8, 9.6, 'Constitutions, federal experiments and civil wars shape the young nation');
+}
+
+// ---- VI. Rafael Núñez & the Regeneration ----------------------------------------
+function laurel(cx, cy, r, p) {
+  if (p <= 0) return;
+  const n = 15;
+  A(.8); ctx.strokeStyle = '#b98a2a'; ctx.lineWidth = 3;
+  for (const side of [-1, 1]) {
+    ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI / 2 + side * .3, Math.PI / 2 + side * (.3 + 2.4 * p), side < 0); ctx.stroke();
+    for (let i = 0; i < n; i++) {
+      const q = i / (n - 1); if (q > p) break;
+      const a = Math.PI / 2 + side * (.35 + q * 2.35), x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r, tang = a + side * Math.PI / 2;
+      for (const k of [-1, 1]) { ctx.save(); ctx.translate(x, y); ctx.rotate(tang + k * .55 * side); A(1); ctx.fillStyle = goldGrad(-10, 10); ctx.beginPath(); ctx.ellipse(15, 0, 16, 5.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+    }
+  }
+}
+function sNunez(lt) {
+  bgRadial('#2e2010', '#070503', 620, 560, 1300);
+  glow(190, 560, 560, '255,170,80', .32 + .04 * Math.sin(lt * 9));
+  candle(190, 860, 2.4, lt, 3);
+  const pe = eo3(prog(lt, .2, 1.4));
+  ctx.save(); ctx.translate(650, 640 + (1 - pe) * 60); ctx.rotate(-.05);
+  const pw = 540, ph = 600;
+  A(pe); ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 40; ctx.fillStyle = '#e9dcb8'; ctx.fillRect(-pw / 2, -ph / 2, pw, ph); ctx.shadowBlur = 0;
+  const pg = ctx.createRadialGradient(0, 0, 100, 0, 0, 420); pg.addColorStop(0, 'rgba(0,0,0,0)'); pg.addColorStop(1, 'rgba(90,60,20,.4)'); ctx.fillStyle = pg; ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
+  txt('CONSTITUCIÓN POLÍTICA', 0, -ph / 2 + 58, { size: 26, font: 'Cinzel', weight: 700, color: '#3a2410', alpha: pe });
+  txt('DE LA REPÚBLICA DE COLOMBIA', 0, -ph / 2 + 92, { size: 19, font: 'Cinzel', weight: 700, color: '#3a2410', alpha: pe });
+  txt('1886', 0, -ph / 2 + 136, { size: 34, font: 'Cinzel', weight: 900, color: '#7a4a10', alpha: pe });
+  const wp = prog(lt, 1.2, 10), lines = 14; let qx = -pw / 2 + 50, qy = -ph / 2 + 190;
+  ctx.strokeStyle = '#4a3218'; ctx.lineWidth = 2;
+  for (let k = 0; k < lines; k++) {
+    const lp = clamp(wp * lines - k); if (lp <= 0) break;
+    const y0 = -ph / 2 + 190 + k * 28, x0 = -pw / 2 + 50, len = (pw - 100) * (k === lines - 1 ? .5 : 1);
+    A(pe * .85); ctx.beginPath(); for (let i = 0; i <= lp * len; i += 4) { const yy = y0 + Math.sin(i * .35 + k) * 3 + Math.sin(i * .11) * 2; i ? ctx.lineTo(x0 + i, yy) : ctx.moveTo(x0 + i, yy); } ctx.stroke();
+    qx = x0 + lp * len; qy = y0;
+  }
+  if (wp < 1) { ctx.save(); ctx.translate(qx, qy); ctx.rotate(.5); A(pe); ctx.fillStyle = '#f4efe3'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(38, -120, 18, -250); ctx.quadraticCurveTo(-12, -130, 0, 0); ctx.fill(); ctx.strokeStyle = '#8a7a60'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(16, -240); ctx.stroke(); ctx.restore(); }
+  ctx.restore();
+  const X = 1390;
+  laurel(X, 250, 105, eo3(prog(lt, .4, 2)));
+  txt('1886', X, 250, { size: 54, font: 'Cinzel', weight: 900, fill: goldGrad(220, 280), alpha: prog(lt, .6, 1.5) });
+  kicker('CARTAGENA, 1825 – 1894', X, 420, prog(lt, .6, 1.4));
+  revealTxt('RAFAEL NÚÑEZ', X, 500, prog(lt, .8, 2.2), { size: 86, font: 'Cinzel', weight: 900, spacing: 6, fill: goldGrad(455, 545), glow: 30, glowColor: 'rgba(0,0,0,.8)' });
+  const lw = 540 * eo3(prog(lt, 1.6, 2.6)); rect(X - lw / 2, 562, lw, 2, GOLD, .8);
+  wipe('PRESIDENT · ARCHITECT OF THE 1886 CONSTITUTION', X, 604, prog(lt, 1.8, 3), { size: 20, weight: 600, spacing: 4, color: '#f3e8cc' });
+  txt('“Fundamental administrative regeneration… or catastrophe.”', X, 700, { size: 27, weight: 300, style: 'italic', color: '#fff6e0', alpha: prog(lt, 3.2, 4.2) });
+  txt('RAFAEL NÚÑEZ, 1878', X, 746, { size: 17, weight: 700, spacing: 8, color: GOLD, alpha: prog(lt, 3.8, 4.6) });
+  txt('He also wrote the lyrics of the National Anthem', X, 830, { size: 22, weight: 300, color: '#d9ccab', alpha: prog(lt, 6, 7) });
+  header(lt, 'VI', 'THE REGENERATION', '1886');
+  caption(lt, .8, 6, 'After decades of civil wars, Rafael Núñez leads the Regeneration');
+  caption(lt, 6.4, 12.3, 'The Constitution of 1886 restores central authority and order for over a century');
+}
+
+// ---- VI. Thousand Days' War & Panama -----------------------------------------------
+function rifleman(x, y, s, flash, face = 1) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s * face, s); A(1); ctx.fillStyle = '#0a0404'; ctx.strokeStyle = '#0a0404'; ctx.lineCap = 'round';
+  ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(-14, 0); ctx.moveTo(0, -34); ctx.lineTo(16, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-9, -34); ctx.lineTo(9, -34); ctx.lineTo(12, -72); ctx.lineTo(-6, -72); ctx.fill();
+  ctx.beginPath(); ctx.arc(4, -82, 8, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(-6, -94, 20, 8); ctx.fillRect(-10, -88, 28, 3);
+  ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(-6, -64); ctx.lineTo(56, -70); ctx.stroke();
+  ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(6, -66); ctx.lineTo(26, -68); ctx.stroke();
+  ctx.restore();
+  if (flash > 0) { glow(x + 60 * s * face, y - 70 * s, 40 * s, '255,200,120', flash); circle(x + 60 * s * face, y - 70 * s, 5 * s, '#fff2c8', flash); }
+}
+function subBattle(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#1a0506'], [.55, '#6b1c0e'], [.8, '#c2461a'], [1, '#2a0a06']]));
+  glow(1500, 620, 500, '255,140,60', .45);
+  for (let i = 0; i < 12; i++) { const x = ((hash(i + 80) * 2400 + u * 40) % 2400) - 240, y = 380 + hash(i + 81) * 380; glow(x, y, 260 + hash(i + 82) * 160, '40,14,10', .55); }
+  hillLayer(860, 70, .003, 1.2, '#160605');
+  for (let i = 0; i < 9; i++) { const x = 1250 + i * 80, y = hillY(x, 860, 70, .003, 1.2) + 6; const fl = hash(Math.floor(u * 7) + i * 13) > .85 ? 1 : 0; rifleman(x, y, .55, fl, -1); }
+  hillLayer(930, 60, .0025, 3.1, '#0a0303');
+  for (let i = 0; i < 11; i++) { const x = 120 + i * 95, y = hillY(x, 930, 60, .0025, 3.1) + 6; const fl = hash(Math.floor(u * 6) + i * 7) > .8 ? Math.exp(-((u * 6) % 1) * 4) : 0; rifleman(x, y, 1, fl, 1); }
+  const cx = 1180, cy = 960, sh = (u * .8) % 1;
+  A(1); ctx.fillStyle = '#060202'; ctx.save(); ctx.translate(cx, cy - 40); ctx.rotate(-.18); ctx.fillRect(-20, -12, 150, 24); ctx.restore();
+  ring(cx, cy - 20, 34, '#060202', 8, 1);
+  if (sh < .3) glow(cx + 150, cy - 70, 180 * (1 - sh / .3) + 40, '255,210,140', .9 * (1 - sh / .3));
+  for (let k = 0; k < 6; k++) glow(cx + 160 + k * 40 + sh * 200, cy - 80 - k * 20 - sh * 120, 60 + sh * 140, '90,70,60', .4 * (1 - sh));
+  txt('1899 – 1902', 960, 290, { size: 120, font: 'Cinzel', weight: 900, fill: goldGrad(230, 350), glow: 30, glowColor: 'rgba(0,0,0,.9)', alpha: prog(u, .2, 1.2) });
+  wipe("THE WAR OF A THOUSAND DAYS", 960, 400, prog(u, .8, 2), { size: 44, weight: 800, spacing: 12, color: '#fff', glow: 16, glowColor: 'rgba(0,0,0,.8)' });
+}
+function subPanama(u) {
+  bgRadial('#0d1a33', '#02050c');
+  const cx = 1180, cy = 600, sc = 40, br = eio(prog(u, 1.4, 4.2));
+  drawMap(cx, cy, sc, { p: 1, stroke: 'rgba(242,193,78,.8)', width: 2.5, fill: .1, alpha: 1 });
+  const [jx, jy] = mp(-77.5, 8.1, cx, cy, sc);
+  ctx.save(); ctx.translate(-br * 170, -br * 70); ctx.translate(jx, jy); ctx.rotate(-br * .12); ctx.translate(-jx, -jy);
+  polyPath(PAN, cx, cy, sc); A(1); ctx.fillStyle = `rgba(206,17,38,${.25 + .35 * br})`; ctx.fill(); ctx.strokeStyle = '#ff6b5a'; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.restore();
+  const cp = prog(u, .8, 1.5) * (1 - prog(u, 3, 4));
+  if (cp > 0) { glow(jx, jy, 140, '255,80,60', .8 * cp); A(cp); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(jx - 20, jy - 40); ctx.lineTo(jx + 6, jy - 12); ctx.lineTo(jx - 8, jy + 6); ctx.lineTo(jx + 18, jy + 40); ctx.stroke(); }
+  kicker('3 NOVEMBER 1903', 520, 420, prog(u, .3, 1));
+  revealTxt('PANAMA', 520, 510, prog(u, .5, 1.6), { size: 110, font: 'Cinzel', weight: 900, spacing: 10, fill: '#ff8a78', glow: 30, glowColor: 'rgba(255,40,20,.6)' });
+  wipe('SEPARATES FROM COLOMBIA', 520, 600, prog(u, 1.2, 2.2), { size: 30, weight: 700, spacing: 10, color: '#fff' });
+}
+function sWar(lt) {
+  seq(lt, [[0, 5, subBattle], [5, 10, subPanama]], .6);
+  header(lt, 'VI', 'WAR AND LOSS', '1899 – 1903');
+  caption(lt, .6, 4.8, 'Liberals and Conservatives clash in a civil war that leaves tens of thousands dead');
+  caption(lt, 5.4, 9.8, 'With the backing of the United States, Panama breaks away');
+}
+
+// ---- VII. Coffee, Bogotazo, Rojas Pinilla, National Front ---------------------------
+function waxPalm(x, base, h, t) {
+  A(1); ctx.strokeStyle = '#d9d0b8'; ctx.lineWidth = 5; const sw = Math.sin(t * .8 + x) * 6;
+  ctx.beginPath(); ctx.moveTo(x, base); ctx.quadraticCurveTo(x + 8, base - h / 2, x + sw, base - h); ctx.stroke();
+  const tx = x + sw, ty = base - h;
+  ctx.strokeStyle = '#2a5a2e'; ctx.lineWidth = 4;
+  for (let i = 0; i < 9; i++) {
+    const a = -Math.PI / 2 + (i - 4) * .4 + Math.sin(t * 1.2 + i + x) * .05, L = 78;
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.quadraticCurveTo(tx + Math.cos(a) * L * .6, ty + Math.sin(a) * L * .6 - 12, tx + Math.cos(a) * L, ty + Math.sin(a) * L + 36 * Math.abs(Math.cos(a))); ctx.stroke();
+  }
+}
+function sCoffee(u) {
+  rect(0, 0, W, H, vgrad(0, 760, [[0, '#4f86ad'], [.6, '#bcd3cf'], [1, '#f5d59a']]));
+  glow(1500, 300, 460, '255,236,180', .7); circle(1500, 300, 60, '#fff3cf', .9);
+  for (let i = 0; i < 5; i++) { const x = ((hash(i) * 2400 + u * 18) % 2400) - 240, y = 140 + hash(i + 4) * 170; glow(x, y, 180, '255,255,255', .35); glow(x + 110, y + 18, 140, '255,255,255', .3); }
+  hillLayer(620, 170, .0026, .8, '#7ea593');
+  hillLayer(700, 150, .0033, 2.1, '#56895a');
+  [300, 430, 1240, 1370, 1720].forEach((x, i) => waxPalm(x, hillY(x, 700, 150, .0033, 2.1) + 6, 330 + hash(i) * 90, u));
+  hillLayer(800, 140, .0041, 4.0, '#346b39');
+  hillLayer(900, 130, .0048, 5.3, '#1f4a24');
+  for (const [base, amp, f, ph] of [[800, 140, .0041, 4.0], [900, 130, .0048, 5.3]]) for (let r = 0; r < 7; r++) for (let x = 10; x < W; x += 26) {
+    const y = hillY(x, base, amp, f, ph) + 22 + r * 30; if (y > H) continue;
+    circle(x + (r % 2) * 13, y, 7, '#143a1a', 1);
+    if (hash(x * .1 + r + base) > .72) circle(x + (r % 2) * 13 + 3, y - 2, 3.2, '#c8242b', 1);
+  }
+  revealTxt('A NATION OF COFFEE', 960, 340, prog(u, .4, 1.8), { size: 86, font: 'Cinzel', weight: 900, spacing: 6, fill: '#3b1e08', glow: 26, glowColor: 'rgba(255,245,220,.9)' });
+  header(u, 'VII', 'A CENTURY OF CHANGE', '1900 – 1948');
+  caption(u, .8, 7.3, 'Early 1900s: coffee from the Andean slopes becomes the engine of the economy');
+}
+function sBogotazo(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#0a0203'], [1, '#3a0806']]));
+  const fk = .85 + .15 * Math.sin(u * 23) * Math.sin(u * 7);
+  glow(960, 1180, 1000, '255,90,20', .6 * fk);
+  A(1); ctx.fillStyle = '#1a0505'; ctx.beginPath(); ctx.moveTo(1000, H); ctx.quadraticCurveTo(1300, 520, 1500, 430); ctx.quadraticCurveTo(1700, 520, W, 640); ctx.lineTo(W, H); ctx.fill();
+  ctx.fillRect(1486, 400, 28, 32); ctx.beginPath(); ctx.moveTo(1482, 400); ctx.lineTo(1500, 376); ctx.lineTo(1518, 400); ctx.fill();
+  ctx.fillStyle = '#080202';
+  for (let x = -20; x < W; x += 70) { const h = 120 + hash(x * .7) * 150; ctx.fillRect(x, H - h, 66, h); }
+  [[520, 330], [880, 380], [1160, 300]].forEach(([x, h]) => { ctx.fillRect(x, H - h, 70, h); ctx.beginPath(); ctx.moveTo(x - 6, H - h); ctx.lineTo(x + 35, H - h - 90); ctx.lineTo(x + 76, H - h); ctx.fill(); });
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 140; i++) {
+    const age = (u * (.5 + hash(i) * .5) + hash(i + 1)) % 1, x = hash(i + 2) * W + Math.sin(age * 6 + i) * 22, y = H + 10 - age * (300 + hash(i + 3) * 380);
+    circle(x, y, 20 * (1 - age) + 3, `rgb(255,${Math.floor(90 + 120 * (1 - age))},30)`, (1 - age) * .45);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 10; i++) { const x = hash(i + 50) * W, y = 420 - ((u * 30 + i * 60) % 400); glow(x, y, 220, '30,10,10', .5); }
+  kicker('9 APRIL 1948', 960, 255, prog(u, .2, 1), '#ffd0b0', 44);
+  const rg = ctx.createLinearGradient(0, 320, 0, 440); rg.addColorStop(0, '#ffb070'); rg.addColorStop(.5, '#ff4b2b'); rg.addColorStop(1, '#8a0a0a');
+  revealTxt('EL BOGOTAZO', 960, 380, prog(u, .4, 1.6), { size: 140, font: 'Cinzel', weight: 900, spacing: 8, fill: rg, glow: 40, glowColor: 'rgba(255,40,0,.8)' });
+  header(u, 'VII', 'A CENTURY OF CHANGE', '1900 – 1948', -5);
+  caption(u, .9, 7.3, "Jorge Eliécer Gaitán's assassination plunges the country into La Violencia");
+}
+function tvSet(x, y, s, t, mode, a = 1) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  glow(-40, -30, 330, mode === 3 ? '255,60,60' : '190,210,255', .25 * a);
+  const g = ctx.createLinearGradient(-210, -170, 210, 170); g.addColorStop(0, '#7a4a28'); g.addColorStop(1, '#2a160a');
+  A(a); ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(-210, -170, 420, 340, 26); ctx.fill();
+  ctx.fillStyle = '#1a0f08'; ctx.fillRect(-160, 170, 16, 70); ctx.fillRect(144, 170, 16, 70);
+  ctx.save(); ctx.beginPath(); ctx.roundRect(-180, -140, 270, 220, 44); ctx.clip();
+  ctx.fillStyle = '#0e1116'; ctx.fillRect(-180, -140, 270, 220);
+  if (mode === 0 || mode === 3) { A(a * (mode === 3 ? .5 : .75)); ctx.save(); ctx.translate(Math.floor(hash(t * 30) * 256), Math.floor(hash(t * 30 + 1) * 256)); ctx.fillStyle = grain; ctx.fillRect(-600, -600, 1200, 1200); ctx.restore(); if (mode === 3) { A(a * .45); ctx.fillStyle = '#b3121f'; ctx.fillRect(-180, -140, 270, 220); } }
+  if (mode === 1) { ['#f4f4f4', '#cfcfcf', '#a9a9a9', '#848484', '#5f5f5f', '#3b3b3b'].forEach((c, i) => { A(a); ctx.fillStyle = c; ctx.fillRect(-180 + i * 45, -140, 45, 150); }); A(a); ctx.fillStyle = '#111'; ctx.fillRect(-180, 10, 270, 70); ring(-45, -40, 60, '#fff', 3, a); txt('1954', -45, 45, { size: 26, font: 'Cinzel', weight: 900, color: '#fff', alpha: a }); }
+  if (mode === 2) { A(a); ctx.fillStyle = '#d8d8d8'; ctx.fillRect(-180, -140, 270, 220); txt('VOTO', -45, -50, { size: 44, font: 'Cinzel', weight: 900, color: '#111', alpha: a }); txt('FEMENINO', -45, 5, { size: 30, font: 'Cinzel', weight: 900, color: '#111', alpha: a }); }
+  if (mode === 4) txt('FIN', -45, -30, { size: 60, font: 'Cinzel', weight: 900, color: '#eee', alpha: a });
+  const sg = ctx.createRadialGradient(-45, -30, 40, -45, -30, 200); sg.addColorStop(0, 'rgba(255,255,255,.08)'); sg.addColorStop(1, 'rgba(0,0,0,.55)'); A(a); ctx.fillStyle = sg; ctx.fillRect(-180, -140, 270, 220);
+  ctx.restore();
+  circle(150, -80, 20, '#140b05', a); circle(150, -10, 20, '#140b05', a); ring(150, -80, 12, '#6b4a2a', 3, a); ring(150, -10, 12, '#6b4a2a', 3, a);
+  A(a * .6); ctx.strokeStyle = '#140b05'; ctx.lineWidth = 3; for (let k = 0; k < 6; k++) { ctx.beginPath(); ctx.moveTo(120, 40 + k * 18); ctx.lineTo(180, 40 + k * 18); ctx.stroke(); }
+  ctx.restore();
+}
+function sRojas(lt) {
+  seq(lt, [
+    [0, 5.2, u => {
+      rect(0, 0, W, H, vgrad(0, H, [[0, '#04060c'], [.7, '#101a2c'], [1, '#1c2436']]));
+      for (let i = 0; i < 5; i++) searchlight(260 + i * 350, H, -Math.PI / 2 + Math.sin(u * .7 + i * 1.3) * .5, 1300, .16);
+      colonnade(960, 860, 1100, 300, '#070a12', '255,210,150', .9);
+      for (let i = 0; i < 24; i++) { const x = ((i * 90 + u * 70) % 2200) - 140; drawSoldier(x, 1000, 1.25, u * 7 + i, i % 8 === 4); }
+      kicker('13 JUNE 1953', 960, 250, prog(u, .2, 1));
+      revealTxt('GUSTAVO ROJAS PINILLA', 960, 340, prog(u, .4, 1.8), { size: 76, font: 'Cinzel', weight: 900, spacing: 4, fill: goldGrad(300, 380), glow: 28, glowColor: 'rgba(0,0,0,.9)' });
+      wipe('THE GENERAL SEIZES POWER IN THE ONLY COUP OF THE CENTURY', 960, 420, prog(u, 1.4, 2.6), { size: 22, weight: 700, spacing: 6, color: '#e6ecf5', glow: 10, glowColor: 'rgba(0,0,0,.9)' });
+    }],
+    [5.2, 12.5, u => {
+      bgRadial('#12161f', '#030405', 700, 540, 1200);
+      for (let i = 0; i < 3; i++) searchlight(200 + i * 700, H, -Math.PI / 2 + Math.sin(u * .5 + i * 2) * .4, 1200, .07);
+      const items = [['1954', 'Television arrives in Colombia', GOLD2, 1], ['1954', 'Women win the right to vote', GOLD2, 2], ['9 JUNE 1954', 'Soldiers kill students in Bogotá', '#ff6b5a', 3], ['10 MAY 1957', 'A national strike forces him out', '#e6ecf5', 4]];
+      const idx = Math.min(3, Math.max(0, Math.floor(u / 1.8))), mode = u < .4 ? 0 : items[idx][3];
+      tvSet(560, 540, 1.25, u, mode, prog(u, 0, .6));
+      items.forEach(([d, s, c], i) => {
+        const p = prog(u, i * 1.8, i * 1.8 + .7); if (p <= 0) return; const y = 360 + i * 110, act = i === idx ? 1 : .55;
+        txt(d, 1000, y - 22, { size: 24, weight: 800, spacing: 8, color: c, align: 'left', alpha: p * act });
+        wipe(s, 1000, y + 18, p, { size: 36, font: 'Cinzel', weight: 700, color: '#fff', align: 'left', alpha: act });
+      });
+    }]
+  ], .6);
+  header(lt, 'VII', 'THE GENERAL', '1953 – 1957');
+  caption(lt, .8, 5, 'A military coup ends the government of Laureano Gómez');
+  caption(lt, 5.8, 12.3, 'Public works and reforms, but also censorship, repression and bloodshed');
+}
+function sFront(lt) {
+  bgRadial('#141824', '#030407');
+  const rv = eio(prog(lt, 0, 2.5)), xm = W * rv;
+  for (const [c, ph] of [['206,17,38', 0], ['40,90,200', Math.PI]]) {
+    A(.9); ctx.strokeStyle = `rgb(${c})`; ctx.lineWidth = 22; ctx.lineCap = 'round'; ctx.beginPath();
+    for (let x = 0; x <= xm; x += 12) { const y = 600 + Math.sin(x * .006 + ph + lt * .8) * 70; x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
+    glow(xm, 600 + Math.sin(xm * .006 + ph + lt * .8) * 70, 60, c, .6 * (1 - prog(lt, 2.2, 2.8)));
+  }
+  [['1958', 'ALBERTO LLERAS CAMARGO', 'LIBERAL', '255,110,100'], ['1962', 'GUILLERMO LEÓN VALENCIA', 'CONSERVATIVE', '120,160,255'], ['1966', 'CARLOS LLERAS RESTREPO', 'LIBERAL', '255,110,100'], ['1970', 'MISAEL PASTRANA BORRERO', 'CONSERVATIVE', '120,160,255']].forEach(([y, n, party, c], i) => {
+    const x = 300 + i * 440, p = prog(lt, 1.2 + i * .9, 2 + i * .9); if (p <= 0) return;
+    circle(x, 600, 16 * eoback(p), `rgb(${c})`, 1); ring(x, 600, 28, `rgb(${c})`, 2, p * .7);
+    const up = i % 2 === 0, by = up ? 440 : 760;
+    txt(y, x, by - 26, { size: 40, font: 'Cinzel', weight: 900, color: '#fff', alpha: p });
+    txt(n, x, by + 14, { size: 18, weight: 700, spacing: 2, color: '#e8e8ee', alpha: p });
+    txt(party, x, by + 42, { size: 15, weight: 800, spacing: 6, color: `rgb(${c})`, alpha: p });
+  });
+  revealTxt('LIBERALS & CONSERVATIVES SHARE POWER', 960, 280, prog(lt, .3, 1.8), { size: 44, font: 'Cinzel', weight: 700, spacing: 4, fill: '#fff', glow: 18, glowColor: 'rgba(0,0,0,.8)' });
+  header(lt, 'VII', 'THE NATIONAL FRONT', '1958 – 1974');
+  caption(lt, .8, 7.3, 'Approved in the 1957 plebiscite, the two parties alternate the presidency for 16 years');
+}
+
+// ---- VIII. Years of fire ---------------------------------------------------------------
+function sGuerrilla(lt) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#02060a'], [.6, '#071510'], [1, '#020403']]));
+  stars(lt, .5, 300);
+  for (let i = 0; i < 14; i++) { const x = hash(i + 60) * W, w = 26 + hash(i + 61) * 40; rect(x - w / 2, 0, w, H, vgrad(0, H, [[0, '#020605'], [1, '#040a07']]), 1); }
+  for (let i = 0; i < 40; i++) { const x = hash(i + 70) * W, y = hash(i + 71) * 260; circle(x, y, 90 + hash(i + 72) * 120, i % 2 ? '#03100a' : '#051810', 1); }
+  const fx = 960, fy = 930, fk = .85 + .15 * Math.sin(lt * 17) * Math.sin(lt * 5.3);
+  glow(fx, fy - 40, 620 * fk, '255,140,50', .5);
+  [[-300, 0, 1], [-190, 30, 0], [170, 20, 0], [300, -5, 1], [420, 10, 0]].forEach(([dx, dy, st]) => {
+    const x = fx + dx, y = fy + dy; A(1); ctx.fillStyle = '#030201';
+    if (st) { ctx.fillRect(x - 12, y - 120, 24, 120); ctx.beginPath(); ctx.arc(x, y - 132, 13, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#030201'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - 8, y - 110); ctx.lineTo(x + 20, y - 170); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.ellipse(x, y - 40, 26, 40, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(x + 4, y - 92, 13, 0, Math.PI * 2); ctx.fill(); }
+  });
+  ctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 7; k++) { A(.7); ctx.fillStyle = k % 2 ? '#ffb347' : '#ff6a1a'; ctx.beginPath(); ctx.ellipse(fx + Math.sin(lt * 9 + k) * 8, fy - 30 - k * 8, 34 - k * 4, 50 - k * 4 + Math.sin(lt * 13 + k) * 8, 0, 0, Math.PI * 2); ctx.fill(); }
+  for (let i = 0; i < 40; i++) { const age = (lt * .7 + hash(i + 90)) % 1; circle(fx + (hash(i + 91) - .5) * 80 + Math.sin(age * 8 + i) * 20, fy - 60 - age * 420, 2, '#ffcf7a', 1 - age); }
+  for (let i = 0; i < 30; i++) { const x = hash(i + 95) * W + Math.sin(lt + i) * 30, y = 300 + hash(i + 96) * 500 + Math.cos(lt * .8 + i) * 20; circle(x, y, 2.2, '#d8ff7a', .5 + .5 * Math.sin(lt * 3 + i)); }
+  ctx.globalCompositeOperation = 'source-over';
+  rect(0, 960, W, 120, '#010201');
+  kicker('THE 1960s', 960, 300, prog(lt, .2, 1));
+  revealTxt('THE GUERRILLAS', 960, 390, prog(lt, .4, 1.8), { size: 110, font: 'Cinzel', weight: 900, spacing: 10, fill: '#e7e2d6', glow: 30, glowColor: 'rgba(0,0,0,.9)' });
+  header(lt, 'VIII', 'YEARS OF FIRE', '1964 – 1990');
+  caption(lt, .8, 7.3, 'The FARC and the ELN take up arms in 1964; the M-19 follows in the 1970s');
+}
+function drawButterfly(x, y, s, flap, ang, a) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(s, s); A(a);
+  const f = .15 + .85 * flap; ctx.fillStyle = '#ffd21f';
+  for (const side of [-1, 1]) { ctx.save(); ctx.scale(side * f, 1); ctx.beginPath(); ctx.ellipse(10, -8, 11, 9, -.5, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(8, 7, 7, 6, .5, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+  ctx.fillStyle = '#3a2a00'; ctx.fillRect(-1.2, -10, 2.4, 20); ctx.restore();
+}
+function sMacondo(u) {
+  bgRadial('#2a1d05', '#050301', 960, 700, 1100);
+  glow(960, 760, 460, '255,220,120', .55);
+  A(1); ctx.fillStyle = '#efe3c2';
+  ctx.beginPath(); ctx.moveTo(960, 880); ctx.quadraticCurveTo(800, 850, 620, 870); ctx.lineTo(630, 730); ctx.quadraticCurveTo(800, 710, 960, 750); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(960, 880); ctx.quadraticCurveTo(1120, 850, 1300, 870); ctx.lineTo(1290, 730); ctx.quadraticCurveTo(1120, 710, 960, 750); ctx.closePath(); ctx.fill();
+  A(.35); ctx.fillStyle = '#6b5a40';
+  for (let k = 0; k < 6; k++) { ctx.fillRect(660, 765 + k * 16, 260, 2); ctx.fillRect(1000, 765 + k * 16, 260, 2); }
+  for (let i = 0; i < 70; i++) {
+    const age = u - hash(i) * 3; if (age < 0) continue;
+    const ph = hash(i + 1) * 6.28, x = 960 + (hash(i + 2) - .5) * 300 + Math.sin(age * 1.3 + ph) * 120 * Math.pow(age, .6) + (hash(i + 3) - .5) * 300 * age;
+    const y = 760 - age * 150 * (.6 + hash(i + 4));
+    drawButterfly(x, y, .8 + hash(i + 5) * .9, Math.abs(Math.sin(age * 14 + ph)), Math.sin(age * 2 + ph) * .4, clamp(age * 2) * clamp((y - 420) / 160));
+  }
+  kicker('1967 · ONE HUNDRED YEARS OF SOLITUDE', 960, 250, prog(u, .2, 1));
+  revealTxt('GABRIEL GARCÍA MÁRQUEZ', 960, 340, prog(u, .3, 1.6), { size: 74, font: 'Cinzel', weight: 900, spacing: 4, fill: '#ffe58a', glow: 24, glowColor: 'rgba(255,200,40,.7)' });
+  header(u, 'VIII', 'MAGICAL REALISM', '1967 – 1982');
+  caption(u, .8, 7.3, 'Gabriel García Márquez wins the 1982 Nobel Prize in Literature');
+}
+function subPalace(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#050204'], [.7, '#1c0806'], [1, '#2a0c06']]));
+  for (let i = 0; i < 4; i++) smokeColumn(700 + i * 180, 420, u + i * 2, i * 10, 1.1, '40,30,30', .7);
+  const bx = 480, by = 470, bw = 960, bh = 440;
+  rect(bx, by, bw, bh, vgrad(by, by + bh, [[0, '#1a0f0c'], [1, '#0a0605']]));
+  rect(bx - 20, by - 18, bw + 40, 18, '#0d0807');
+  for (let c = 0; c <= 16; c++) rect(bx + c * 60 - 4, by, 8, bh, '#080404', 1);
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 16; c++) {
+    const heat = hash(r * 31 + c * 7), f = .55 + .45 * Math.sin(u * (6 + heat * 9) + r * 3 + c);
+    const col = heat > .62 ? `rgba(255,${110 + 70 * f | 0},30,${.35 + .45 * f})` : heat > .4 ? `rgba(120,50,20,${.25 + .2 * f})` : 'rgba(20,10,8,.9)';
+    rect(bx + 12 + c * 60, by + 26 + r * 68, 38, 44, col, 1);
+  }
+  for (let i = 0; i < 9; i++) glow(bx + 60 + i * 110, by - 10 - (i % 3) * 30, 200, '25,18,16', .75);
+  glow(960, by + 200, 700, '255,110,30', .35);
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 70; i++) { const age = (u * .8 + hash(i + 200)) % 1, x = bx + hash(i + 201) * bw + Math.sin(age * 6 + i) * 14, y = by + 60 - age * 150; circle(x, y, 5 * (1 - age) + 1.5, `rgb(255,${120 + 100 * (1 - age) | 0},40)`, (1 - age) * .7); }
+  ctx.globalCompositeOperation = 'source-over';
+  A(1); ctx.fillStyle = '#030101'; ctx.fillRect(300, 930, 300, 70); ctx.fillRect(360, 890, 150, 44); ctx.fillRect(500, 905, 150, 10);
+  [340, 420, 500, 570].forEach(x => circle(x, 1005, 26, '#030101', 1));
+  rect(0, 1000, W, 80, '#030101');
+  kicker('6 – 7 NOVEMBER 1985', 960, 215, prog(u, .2, 1), '#ffb899');
+  revealTxt('THE PALACE OF JUSTICE', 960, 300, prog(u, .4, 1.8), { size: 84, font: 'Cinzel', weight: 900, spacing: 4, fill: '#ffd9c0', glow: 30, glowColor: 'rgba(255,60,20,.7)' });
+}
+function subMemorial(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#0a0908'], [1, '#1a1612']]));
+  const wg = ctx.createLinearGradient(0, 160, 0, 860); wg.addColorStop(0, '#24211d'); wg.addColorStop(1, '#161410'); rect(200, 160, 1520, 700, wg);
+  A(.18); ctx.strokeStyle = '#000'; ctx.lineWidth = 2; for (let x = 200; x <= 1720; x += 190) { ctx.beginPath(); ctx.moveTo(x, 160); ctx.lineTo(x, 860); ctx.stroke(); }
+  [['RODRIGO LARA BONILLA', '1984', 'MINISTER OF JUSTICE'], ['JAIME PARDO LEAL', '1987', 'PRESIDENTIAL CANDIDATE'], ['LUIS CARLOS GALÁN', '1989', 'PRESIDENTIAL CANDIDATE'], ['BERNARDO JARAMILLO OSSA', '1990', 'PRESIDENTIAL CANDIDATE'], ['CARLOS PIZARRO LEONGÓMEZ', '1990', 'PRESIDENTIAL CANDIDATE']].forEach(([n, y, r], i) => {
+    const p = prog(u, .3 + i * 1.1, 1.1 + i * 1.1); if (p <= 0) return; const yy = 250 + i * 120;
+    txt(n, 960, yy, { size: 50, font: 'Cinzel', weight: 700, spacing: 4, color: '#e9d8a8', alpha: p, glow: 18 * p, glowColor: 'rgba(255,190,90,.5)' });
+    txt(`${y}  ·  ${r}`, 960, yy + 44, { size: 18, weight: 600, spacing: 8, color: '#b8a67c', alpha: p });
+  });
+  for (let i = 0; i < 16; i++) { const x = 250 + i * 95 + (hash(i + 400) - .5) * 30; if (u > .2 + i * .25) candle(x, 960 + hash(i + 401) * 30, 1.1 + hash(i + 402) * .4, u, i); }
+}
+function sMagni(lt) {
+  seq(lt, [[0, 5, subPalace], [5, 12.5, subMemorial]], .6);
+  header(lt, 'VIII', 'YEARS OF FIRE', '1964 – 1990', -5);
+  caption(lt, .6, 4.8, 'M-19 guerrillas seize the Palace of Justice: about 100 die, including 11 justices');
+  caption(lt, 5.6, 12.3, 'Cartels and paramilitaries murder a justice minister and four presidential candidates');
+}
+function sConst(lt) {
+  bgRadial('#10141c', '#030406');
+  const light = eio(prog(lt, 0, 1.6));
+  rect(0, 0, W, H, 'rgba(70,58,30,1)', .45 * light);
+  rays(960, -220, Math.PI / 2 - .9 + Math.sin(lt * .3) * .05, 40, '255,236,190', .3 * light, 1800, .45);
+  const dx = 1300, dy = 520 + (1 - light) * 90, w = 440, h = 560;
+  ctx.save(); A(light); ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 40; ctx.fillStyle = '#f1e6c8'; ctx.fillRect(dx - w / 2, dy - h / 2, w, h); ctx.restore();
+  A(light); ctx.strokeStyle = GOLD; ctx.lineWidth = 3; ctx.strokeRect(dx - w / 2 + 14, dy - h / 2 + 14, w - 28, h - 28);
+  txt('CONSTITUCIÓN POLÍTICA', dx, dy - h / 2 + 62, { size: 23, font: 'Cinzel', weight: 700, color: '#2a1a08', alpha: light });
+  txt('DE COLOMBIA', dx, dy - h / 2 + 94, { size: 23, font: 'Cinzel', weight: 700, color: '#2a1a08', alpha: light });
+  txt('1991', dx, dy - h / 2 + 134, { size: 30, font: 'Cinzel', weight: 900, color: '#8a5a10', alpha: light });
+  for (let k = 0; k < 11; k++) { const p = prog(lt, 1 + k * .2, 1.6 + k * .2), lw = (w - 120) * (.6 + .4 * hash(k + 3)); rect(dx - w / 2 + 60, dy - h / 2 + 186 + k * 28, lw * eo3(p), 3, '#6b5a40', light * .8); }
+  circle(dx + w / 2 - 80, dy + h / 2 - 66, 32 * eoback(prog(lt, 3.4, 4.1)), '#b3121f', light);
+  txt('1991', 600, 360, { size: 170, font: 'Cinzel', weight: 900, fill: goldGrad(280, 440), glow: 30, glowColor: 'rgba(255,170,40,.6)', alpha: light });
+  wipe('A NEW CONSTITUTION', 600, 480, prog(lt, .8, 2), { size: 40, weight: 700, spacing: 8, color: '#fff' });
+  kicker('PRESIDENTS OF THE CONSTITUENT ASSEMBLY', 600, 580, prog(lt, 2.4, 3.2), GOLD, 17);
+  [['ÁLVARO GÓMEZ HURTADO', GOLD2], ['HORACIO SERPA', '#fff'], ['ANTONIO NAVARRO WOLFF', '#fff']].forEach(([n, c], i) => {
+    wipe(n, 600, 640 + i * 52, prog(lt, 2.8 + i * .5, 3.6 + i * .5), { size: 30, font: 'Cinzel', weight: 700, color: c, spacing: 2 });
+  });
+  header(lt, 'VIII', 'A NEW PACT', '1991');
+  caption(lt, .8, 5, 'A Constituent Assembly writes a new charter for the nation');
+  caption(lt, 5.4, 9.8, "A social state of law that embraces the nation's ethnic and cultural diversity");
+}
+function sGomez(lt) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#121a28'], [.6, '#2a3346'], [1, '#0b0e14']]));
+  const bw = ctx.createLinearGradient(0, 200, 0, 820); bw.addColorStop(0, '#3a2a24'); bw.addColorStop(1, '#231915'); rect(0, 200, W, 620, bw);
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 14; c++) { const lit = hash(r * 17 + c * 5) > .6; rect(60 + c * 136, 250 + r * 110, 70, 70, lit ? 'rgba(255,200,120,.55)' : 'rgba(10,12,18,.8)', 1); }
+  rect(0, 200, W, 30, '#1c1411');
+  rect(0, 0, W, H, 'rgba(8,10,16,1)', .55);
+  txt('UNIVERSIDAD SERGIO ARBOLEDA', 1310, 790, { size: 18, weight: 700, spacing: 6, color: 'rgba(220,210,190,.55)' });
+  rect(0, 820, W, 260, vgrad(820, H, [[0, '#15181e'], [1, '#07080b']]));
+  [260, 960, 1660].forEach(x => {
+    rect(x - 4, 470, 8, 350, '#07080a'); rect(x - 26, 462, 52, 10, '#07080a');
+    glow(x, 480, 220, '255,210,140', .45);
+    for (let k = 0; k < 18; k++) rect(x - 20 + hash(k + x) * 40, 830 + k * 13, 40 - hash(k + x + 1) * 20, 3, 'rgba(255,210,140,1)', .25 * (1 - k / 18));
+  });
+  rain(lt, .35);
+  const rp = prog(lt, 1, 5.2), ry = lerp(-100, 905, eio(rp)), rr = lerp(-.4, 1.35, rp) + Math.sin(lt * 3) * .1 * (1 - rp);
+  rose(1560 + Math.sin(lt * 1.6) * 30 * (1 - rp), ry, 1.1, rr, 1);
+  kicker('2 NOVEMBER 1995 · BOGOTÁ', 820, 300, prog(lt, .3, 1.1));
+  revealTxt('ÁLVARO GÓMEZ HURTADO', 820, 390, prog(lt, .5, 2), { size: 80, font: 'Cinzel', weight: 900, spacing: 4, fill: '#f3ecdc', glow: 30, glowColor: 'rgba(0,0,0,.95)' });
+  [['STATESMAN · JOURNALIST · THREE-TIME PRESIDENTIAL CANDIDATE', 2.2], ['CO-PRESIDENT OF THE 1991 CONSTITUENT ASSEMBLY', 3]].forEach(([s, t0], i) => wipe(s, 820, 470 + i * 44, prog(lt, t0, t0 + 1), { size: 20, weight: 700, spacing: 5, color: '#dfe3ea', glow: 10, glowColor: 'rgba(0,0,0,.9)' }));
+  txt('“Un acuerdo sobre lo fundamental”', 820, 600, { size: 34, weight: 300, style: 'italic', color: '#ffe9b8', alpha: prog(lt, 4.4, 5.4), glow: 12, glowColor: 'rgba(0,0,0,.9)' });
+  txt('AN AGREEMENT ON THE FUNDAMENTALS', 820, 646, { size: 16, weight: 700, spacing: 8, color: GOLD, alpha: prog(lt, 5, 5.8) });
+  header(lt, 'VIII', 'MAGNICIDE', '1995');
+  caption(lt, .6, 4.4, 'Álvaro Gómez Hurtado is shot dead as he leaves the Sergio Arboleda University');
+  caption(lt, 4.6, 8.4, 'In 2017 his murder was declared a crime against humanity');
+  caption(lt, 8.6, 12.4, 'The FARC claimed it in 2020; his family disputes this, and the case remains open');
+}
+
+// ---- IX. The new century -----------------------------------------------------------------
+function carAt(x, y, s) { A(1); ctx.fillStyle = '#0b0d10'; ctx.fillRect(x - 16 * s, y - 9 * s, 32 * s, 10 * s); ctx.fillRect(x - 9 * s, y - 15 * s, 18 * s, 7 * s); glow(x + 22 * s, y - 5 * s, 40 * s, '255,240,200', .6); }
+function subCaravan(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#2a3b66'], [.45, '#e39a6a'], [.6, '#f7c98a'], [1, '#3a2a1e']]));
+  glow(1350, 520, 520, '255,210,150', .7); circle(1350, 540, 70, '#fff0d0', .95);
+  ridgeLayer(560, 260, 21, 'rgba(90,80,110,.85)', u * 4);
+  ridgeLayer(640, 200, 22, '#4a4058', u * 7);
+  ridgeLayer(760, 160, 23, '#2c2636', u * 11);
+  const road = q => [lerp(-80, 2000, q), 1000 - q * 330 + Math.sin(q * 9) * 38];
+  A(1); ctx.strokeStyle = '#1a1614'; ctx.lineWidth = 34; ctx.lineCap = 'round'; ctx.beginPath(); for (let q = 0; q <= 1; q += .01) { const [x, y] = road(q); q ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
+  A(.7); ctx.strokeStyle = '#e8d9a8'; ctx.lineWidth = 2; ctx.setLineDash([14, 18]); ctx.beginPath(); for (let q = 0; q <= 1; q += .01) { const [x, y] = road(q); q ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); ctx.setLineDash([]);
+  for (let i = 0; i < 12; i++) { const q = (i * .085 + u * .045) % 1, [x, y] = road(q); carAt(x, y + 4, .9 + q * .2); }
+  for (let i = 0; i < 9; i++) {
+    const q = .06 + i * .11, [x, y] = road(q); A(1); ctx.save(); ctx.translate(x, y - 34); ctx.fillStyle = '#0a0806';
+    ctx.fillRect(-6, -60, 12, 40); ctx.beginPath(); ctx.arc(0, -68, 7, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(-7, -79, 14, 7); ctx.fillRect(-5, -20, 4, 20); ctx.fillRect(1, -20, 4, 20);
+    ctx.strokeStyle = '#0a0806'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(6, -50); ctx.lineTo(14, -84); ctx.stroke();
+    ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(-16, -110); ctx.stroke();
+    [[YEL, 0, 12], [BLU, 12, 6], [RED, 18, 6]].forEach(([c, o, h]) => { ctx.fillStyle = c; ctx.fillRect(-16, -110 + o + Math.sin(u * 6 + i) * 2, 34, h); });
+    ctx.restore();
+  }
+  kicker('7 AUGUST 2002', 960, 250, prog(u, .2, 1), '#fff4d8');
+  revealTxt('ÁLVARO URIBE VÉLEZ', 960, 340, prog(u, .4, 1.8), { size: 88, font: 'Cinzel', weight: 900, spacing: 6, fill: goldGrad(295, 385), glow: 30, glowColor: 'rgba(40,20,10,.9)' });
+  wipe('DEMOCRATIC SECURITY', 960, 425, prog(u, 1.4, 2.6), { size: 30, weight: 800, spacing: 22, color: '#fff', glow: 12, glowColor: 'rgba(0,0,0,.7)' });
+}
+function subSecurity(u) {
+  const cnt = eio(prog(u, .8, 4.2));
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#060a14'], [.6, '#131c30'], [1, '#05070b']]));
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#1c2a4a'], [.55, '#c07a52'], [.72, '#f3c48a'], [1, '#1a1210']]), cnt * .85);
+  stars(u, .6 * (1 - cnt), 520);
+  glow(960, 760, 900 * (.4 + .6 * cnt), '255,200,130', .55 * cnt);
+  ridgeLayer(860, 260, 31, '#0b1018', u * 5);
+  for (let i = 0; i < 7; i++) { const x = 180 + i * 260, y = 860 - ridgeY(x + u * 5, 31, 260) + 4; A(1); ctx.fillStyle = '#05070b'; ctx.fillRect(x - 5, y - 44, 10, 30); ctx.beginPath(); ctx.arc(x, y - 50, 6, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(x - 4, y - 14, 3, 14); ctx.fillRect(x + 1, y - 14, 3, 14); ctx.strokeStyle = '#05070b'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(x + 4, y - 36); ctx.lineTo(x + 12, y - 66); ctx.stroke(); }
+  ridgeLayer(960, 160, 32, '#05070b', u * 9);
+  [[520, 'KIDNAPPINGS', 2882, 282, '−90%', '#5fe39a'], [1400, 'HOMICIDES', 28837, 15459, '−46%', GOLD2]].forEach(([x, l, a, b, pct, c], i) => {
+    const p = prog(u, .2 + i * .4, 1 + i * .4); if (p <= 0) return;
+    kicker(l, x, 330, p, '#cfd8e6', 22);
+    txt(Math.round(lerp(a, b, cnt)).toLocaleString('en-US'), x, 450, { size: 150, font: 'Cinzel', weight: 900, color: '#fff', alpha: p, glow: 30, glowColor: 'rgba(120,170,255,.35)' });
+    ctx.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 40; k++) { const age = (u * .9 + hash(k + i * 50)) % 1; circle(x + (hash(k + i * 50 + 1) - .5) * 460, 500 + age * 360, 2, '#9fc4ff', (1 - age) * .6 * cnt * (1 - prog(u, 4.2, 5))); }
+    ctx.globalCompositeOperation = 'source-over';
+    txt('2002  →  ' + Math.round(lerp(2002, 2010, cnt)), x, 560, { size: 22, weight: 600, spacing: 8, color: '#9fb0c8', alpha: p });
+    const sp = prog(u, 4.2, 4.8); if (sp > 0) { const s = 1 + .8 * (1 - eoexp(sp)); ctx.save(); ctx.translate(x, 660); ctx.scale(s, s); txt(pct, 0, 0, { size: 84, weight: 800, color: c, alpha: sp, glow: 24, glowColor: c }); ctx.restore(); }
+  });
+  txt('SOURCE: COLOMBIAN MINISTRY OF DEFENSE', 960, 800, { size: 15, weight: 600, spacing: 6, color: '#7f8ea5', alpha: prog(u, 4.5, 5.2) });
+}
+function helicopter(x, y, s, t) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); A(1);
+  ctx.fillStyle = '#8a857e'; ctx.beginPath(); ctx.moveTo(-60, -10); ctx.lineTo(-230, -22); ctx.lineTo(-230, -12); ctx.lineTo(-60, 10); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-230, -22); ctx.lineTo(-250, -60); ctx.lineTo(-238, -60); ctx.lineTo(-220, -18); ctx.fill();
+  ctx.fillStyle = 'rgba(210,215,220,.45)'; ctx.beginPath(); ctx.ellipse(-244, -38, 6, 26, 0, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createLinearGradient(0, -50, 0, 40); g.addColorStop(0, '#e6ddd2'); g.addColorStop(.5, '#9a948c'); g.addColorStop(1, '#4a4642');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-70, -38); ctx.lineTo(60, -40); ctx.quadraticCurveTo(110, -36, 120, 0); ctx.quadraticCurveTo(115, 30, 70, 34); ctx.lineTo(-70, 30); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#9c2226'; ctx.fillRect(-70, 4, 160, 8); ctx.strokeStyle = 'rgba(255,190,120,.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-70, -38); ctx.lineTo(60, -40); ctx.quadraticCurveTo(110, -36, 120, 0); ctx.stroke();
+  ctx.fillStyle = '#2b3a4d'; ctx.beginPath(); ctx.moveTo(78, -30); ctx.quadraticCurveTo(106, -26, 113, -4); ctx.lineTo(80, -4); ctx.closePath(); ctx.fill();
+  for (let i = 0; i < 4; i++) ctx.fillRect(-50 + i * 28, -24, 16, 12);
+  ctx.fillStyle = '#d4d9de'; ctx.fillRect(-40, -54, 80, 16); ctx.fillStyle = '#333'; ctx.fillRect(-3, -66, 6, 14);
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-40, 30); ctx.lineTo(-44, 48); ctx.moveTo(50, 34); ctx.lineTo(54, 48); ctx.stroke();
+  const rg = ctx.createRadialGradient(0, -66, 0, 0, -66, 250); rg.addColorStop(0, 'rgba(30,30,30,.35)'); rg.addColorStop(1, 'rgba(30,30,30,0)'); ctx.fillStyle = rg; ctx.beginPath(); ctx.ellipse(0, -66, 250, 14, 0, 0, Math.PI * 2); ctx.fill();
+  const bl = Math.sin(t * 40); ctx.strokeStyle = 'rgba(20,20,20,.55)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-250 * bl, -66); ctx.lineTo(250 * bl, -66); ctx.stroke();
+  ctx.restore();
+}
+function subJaque(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#2b1f3a'], [.45, '#d4703a'], [.62, '#f3b060'], [1, '#1a1208']]));
+  glow(1450, 600, 560, '255,190,110', .6); circle(1450, 620, 80, '#ffe2b0', .9);
+  for (let layer = 0; layer < 3; layer++) {
+    const base = 700 + layer * 110, col = ['#2a3a24', '#18251a', '#0b130c'][layer];
+    for (let i = 0; i < 34; i++) { const x = ((i * 70 + hash(i + layer * 40) * 50 - u * (20 + layer * 30)) % 2500 + 2500) % 2500 - 200, y = base + Math.sin(i * 1.7) * 20, r = 70 + hash(i + layer * 9) * 60 + layer * 20; circle(x, y, r, col, 1); for (let k = 0; k < 4; k++) circle(x + (hash(i * 4 + k + layer) - .5) * r, y - r * .55 + hash(i + k) * 20, r * .32, col, 1); A(.18 - layer * .05); ctx.strokeStyle = '#ffb070'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, r, Math.PI * 1.15, Math.PI * 1.75); ctx.stroke(); }
+    rect(0, base + 40, W, H - base, col, 1);
+    fogBand(base - 20, 90, .18 - layer * .04, '255,190,130');
+  }
+  const hx = lerp(-300, 2200, u / 5), hy = 540 + Math.sin(u * 1.5) * 16;
+  for (let k = 0; k < 20; k++) { const age = (u * 1.5 + hash(k + 300)) % 1; glow(hx + (hash(k + 301) - .5) * 300, 720 + age * 40, 60 * age + 20, '220,220,200', .12 * (1 - age)); }
+  helicopter(hx, hy, 1.1, u);
+  kicker('2 JULY 2008', 960, 230, prog(u, .2, 1), '#fff4d8');
+  revealTxt('OPERATION CHECKMATE', 960, 320, prog(u, .4, 1.8), { size: 84, font: 'Cinzel', weight: 900, spacing: 6, fill: '#ffffff', glow: 30, glowColor: 'rgba(60,20,0,.8)' });
+  wipe('15 HOSTAGES FREED WITHOUT A SINGLE SHOT', 960, 400, prog(u, 1.2, 2.4), { size: 26, weight: 800, spacing: 10, color: '#fff', glow: 12, glowColor: 'rgba(0,0,0,.7)' });
+}
+function sUribe(lt) {
+  seq(lt, [[0, 6.2, subCaravan], [6.2, 12.5, subSecurity], [12.5, 17.5, subJaque]], .6);
+  header(lt, 'IX', 'THE URIBE YEARS', '2002 – 2010');
+  caption(lt, .8, 6, "The State returns to the roads: 'Vive Colombia, viaja por ella'");
+  caption(lt, 6.6, 12.3, 'Between 2002 and 2010 kidnappings fall 90% and homicides 46%');
+  caption(lt, 12.9, 17.4, 'Íngrid Betancourt and 14 other hostages are rescued without a shot being fired');
+}
+function subBallot(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#05070c'], [.6, '#141a26'], [1, '#07080b']]));
+  colonnade(960, 780, 1500, 380, '#0a0c12', '255,200,140', 1);
+  rect(0, 780, W, 300, vgrad(780, H, [[0, '#101218'], [1, '#050608']]));
+  for (let k = 0; k < 10; k++) rect(260 + k * 150, 790, 6, 200, 'rgba(255,200,140,1)', .08);
+  rain(u, .45);
+  crowd(900, u, 11, '#030305', { umbrellas: true });
+  const bp = eo3(prog(u, .4, 1.6)), s = .75 + .25 * bp;
+  ctx.save(); ctx.translate(960, 520); ctx.rotate(-.04 * (1 - bp) - .02); ctx.scale(s, s);
+  A(bp); ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 50; ctx.fillStyle = '#f4f1ea'; ctx.fillRect(-340, -200, 680, 400); ctx.shadowBlur = 0;
+  rect(-340, -200, 680, 16, YEL, bp); rect(-340, -184, 680, 8, BLU, bp); rect(-340, -176, 680, 8, RED, bp);
+  txt('PLEBISCITO · 2 DE OCTUBRE DE 2016', 0, -130, { size: 22, weight: 800, spacing: 4, color: '#1a1a1a', alpha: bp });
+  txt('¿Apoya usted el acuerdo final para la terminación del conflicto', 0, -80, { size: 19, weight: 400, color: '#333', alpha: bp });
+  txt('y la construcción de una paz estable y duradera?', 0, -52, { size: 19, weight: 400, color: '#333', alpha: bp });
+  [['SÍ', -150], ['NO', 150]].forEach(([l, x]) => { A(bp); ctx.strokeStyle = '#222'; ctx.lineWidth = 4; ctx.strokeRect(x - 70, 10, 140, 130); txt(l, x, 168, { size: 26, weight: 800, color: '#222', alpha: bp }); });
+  const xp = prog(u, 2.4, 3.2);
+  if (xp > 0) { A(1); ctx.strokeStyle = '#1b2fa0'; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(95, 30); ctx.lineTo(lerp(95, 205, clamp(xp * 2)), lerp(30, 122, clamp(xp * 2))); if (xp > .5) { ctx.moveTo(205, 30); ctx.lineTo(lerp(205, 95, (xp - .5) * 2), lerp(30, 122, (xp - .5) * 2)); } ctx.stroke(); }
+  ctx.restore();
+  kicker('2 OCTOBER 2016', 960, 200, prog(u, .2, 1), '#e8e2d4');
+}
+function subResult(u) {
+  bgRadial('#141a28', '#030407');
+  rain(u, .12, 160);
+  crowd(960, u, 31, '#020306', { umbrellas: true, n: 40 });
+  const g = eio(prog(u, .3, 3.2)), base = 830;
+  [[700, 'YES', 49.8, '150,165,190', 0], [1220, 'NO', 50.2, '230,70,55', 1]].forEach(([x, l, v, c, i]) => {
+    const hgt = 460 * (v / 50.2) * g, top = base - hgt;
+    const cg = ctx.createLinearGradient(0, top, 0, base); cg.addColorStop(0, `rgba(${c},.95)`); cg.addColorStop(1, `rgba(${c},.15)`);
+    rect(x - 110, top, 220, hgt, cg, 1); glow(x, top, 200, c, .5 * g);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 70; k++) { const age = (u * .8 + hash(k + i * 90)) % 1; circle(x + (hash(k + i * 90 + 1) - .5) * 520 * (1 - age), 1080 - age * (1080 - top), 2.2, `rgb(${c})`, (1 - age) * .7 * (1 - prog(u, 3.4, 4.2))); }
+    ctx.globalCompositeOperation = 'source-over';
+    txt((v * g).toFixed(1) + '%', x, top - 60, { size: 76, font: 'Cinzel', weight: 900, color: '#fff', alpha: prog(u, .5, 1) });
+    kicker(l, x, 875, prog(u, .3, .9), `rgb(${c})`, 30);
+  });
+  const wp = prog(u, 3.4, 4);
+  if (wp > 0) { const s = 1 + 1.2 * (1 - eoexp(wp)); ctx.save(); ctx.translate(960, 200); ctx.scale(s, s); txt('THE NO WINS', 0, 0, { size: 90, font: 'Cinzel', weight: 900, color: '#ff6b5a', alpha: wp, glow: 30, glowColor: 'rgba(255,40,20,.6)' }); ctx.restore(); }
+}
+function subColon(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#07060a'], [.7, '#1c1410'], [1, '#07060a']]));
+  const fx = 960, base = 900, fw = 1100, top = 480;
+  const fg = ctx.createLinearGradient(0, top - 90, 0, base); fg.addColorStop(0, '#16100c'); fg.addColorStop(1, '#4a3020');
+  rect(fx - fw / 2, top, fw, base - top, fg);
+  A(1); ctx.fillStyle = '#1d140f'; ctx.beginPath(); ctx.moveTo(fx - fw / 2 - 20, top); ctx.lineTo(fx, top - 90); ctx.lineTo(fx + fw / 2 + 20, top); ctx.fill();
+  A(.5); ctx.strokeStyle = '#c89a62'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(fx - fw / 2 - 20, top); ctx.lineTo(fx, top - 90); ctx.lineTo(fx + fw / 2 + 20, top); ctx.stroke();
+  rect(fx - fw / 2 - 20, top - 4, fw + 40, 10, '#2e2118'); rect(fx - fw / 2 - 10, top + 160, fw + 20, 10, '#2e2118');
+  for (let i = 0; i < 5; i++) { const wx = fx - 400 + i * 200; rect(wx - 32, top + 40, 64, 96, 'rgba(255,196,120,.5)', 1); glow(wx, top + 88, 90, '255,190,110', .25); }
+  for (let i = 0; i < 8; i++) rect(fx - fw / 2 + 60 + i * 140, top + 180, 22, base - top - 180, '#2a1d14', 1);
+  for (let i = 0; i < 3; i++) { const ax = fx - 300 + i * 300; rect(ax - 70, 760, 140, 140, 'rgba(255,190,110,.8)', 1); A(1); ctx.fillStyle = 'rgba(255,190,110,.8)'; ctx.beginPath(); ctx.arc(ax, 760, 70, Math.PI, 0); ctx.fill(); glow(ax, 820, 220, '255,180,90', .35); }
+  glow(fx, base + 40, 700, '255,170,90', .3);
+  txt('TEATRO COLÓN', fx, top - 30, { size: 24, font: 'Cinzel', weight: 700, spacing: 10, color: 'rgba(255,220,170,.6)' });
+  rect(0, base, W, H - base, '#050403');
+  kicker('24 – 30 NOVEMBER 2016', 960, 170, prog(u, .2, 1), '#e8e2d4');
+  revealTxt('A REVISED DEAL', 960, 245, prog(u, .3, 1.5), { size: 80, font: 'Cinzel', weight: 900, spacing: 6, fill: '#f2efe8', glow: 24, glowColor: 'rgba(0,0,0,.9)' });
+  wipe('SIGNED AT THE TEATRO COLÓN, APPROVED BY CONGRESS WITHOUT A NEW VOTE', 960, 318, prog(u, 1.2, 2.2), { size: 21, weight: 800, spacing: 4, color: '#fff' });
+  wipe('10 GUARANTEED SEATS FOR THE FARC PARTY  ·  DISSIDENTS KEEP FIGHTING', 960, 358, prog(u, 2.4, 3.4), { size: 21, weight: 800, spacing: 4, color: '#ff8a78' });
+}
+function sPleb(lt) {
+  seq(lt, [[0, 5, subBallot], [5, 10, subResult], [10, 15, subColon]], .6);
+  header(lt, 'IX', 'THE PLEBISCITE', '2016');
+  caption(lt, .6, 4.8, 'Colombians are asked to approve the agreement signed with the FARC');
+  caption(lt, 5.4, 9.8, 'The NO wins by a razor-thin margin: 50.2% to 49.8%');
+  caption(lt, 10.4, 14.8, 'Critics denounce impunity and a deal imposed against the popular vote');
+}
+function tanker(x, y, s) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); A(1);
+  ctx.fillStyle = 'rgba(90,50,20,.35)'; ctx.beginPath(); ctx.ellipse(0, 4, 175, 14, 0, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createLinearGradient(0, -120, 0, -40); g.addColorStop(0, '#ffffff'); g.addColorStop(.5, '#d9dde2'); g.addColorStop(1, '#8d949c');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(-150, -118, 212, 76, 36); ctx.fill();
+  ctx.fillStyle = '#2a2d33'; ctx.fillRect(-150, -44, 300, 14);
+  const c = ctx.createLinearGradient(0, -120, 0, -30); c.addColorStop(0, '#f4f4f4'); c.addColorStop(1, '#9aa0a8');
+  ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(70, -30); ctx.lineTo(70, -110); ctx.lineTo(125, -110); ctx.lineTo(150, -70); ctx.lineTo(150, -30); ctx.fill();
+  ctx.fillStyle = '#39475a'; ctx.beginPath(); ctx.moveTo(82, -100); ctx.lineTo(120, -100); ctx.lineTo(138, -72); ctx.lineTo(82, -72); ctx.fill();
+  for (const wx of [-120, -84, 110]) { circle(wx, -18, 18, '#16181c'); circle(wx, -18, 8, '#555b63'); }
+  ctx.restore();
+}
+function subUngrd(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#9fb4c4'], [.45, '#f2dcb0'], [.62, '#e8b878'], [1, '#b0703a']]));
+  glow(1500, 200, 600, '255,250,220', .8);
+  hillLayer(640, 60, .002, 1, '#d9a870'); hillLayer(720, 50, .0028, 3, '#c98f55');
+  [[760, 692, .4], [935, 738, .52], [1135, 792, .66], [1375, 856, .82], [1655, 936, 1]].forEach(([x, y, sc]) => tanker(x + u * 4 * sc, y, sc));
+  A(.08); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; for (let k = 0; k < 20; k++) { const y = 640 + k * 12; ctx.beginPath(); for (let x = 0; x <= W; x += 30) { const yy = y + Math.sin(x * .02 + u * 4 + k) * 3; x ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); } ctx.stroke(); }
+  for (let i = 0; i < 60; i++) { const x = ((hash(i + 700) * 2200 + u * 260) % 2200) - 140, y = 600 + hash(i + 701) * 460; circle(x, y, 1.5 + hash(i + 702) * 2, '#f7e2b8', .5); }
+  kicker('2023 – 2024 · LA GUAJIRA', 960, 220, prog(u, .2, 1), '#3a1c08', 24, 'rgba(255,240,210,.9)');
+  revealTxt('THE UNGRD SCANDAL', 960, 310, prog(u, .4, 1.6), { size: 90, font: 'Cinzel', weight: 900, spacing: 6, fill: '#2a1206', glow: 24, glowColor: 'rgba(255,240,210,.9)' });
+  wipe('OVERPRICED WATER TRUCKS  ·  TWO FORMER MINISTERS JAILED', 960, 395, prog(u, 1.2, 2.4), { size: 24, weight: 800, spacing: 6, color: '#3a1c08', glow: 10, glowColor: 'rgba(255,240,210,.9)' });
+}
+function walker(x, y, s, ph, bundle) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); A(1); ctx.fillStyle = '#100b09'; ctx.strokeStyle = '#100b09'; ctx.lineCap = 'round';
+  const sw = Math.sin(ph) * .35; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(Math.sin(sw) * 30, -34 + Math.cos(sw) * 34); ctx.moveTo(0, -34); ctx.lineTo(-Math.sin(sw) * 30, -34 + Math.cos(sw) * 34); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0, -58, 10, 26, .08, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(2, -92, 8, 0, Math.PI * 2); ctx.fill();
+  if (bundle) { ctx.beginPath(); ctx.ellipse(-4, -106, 18, 11, 0, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
+}
+function subCatatumbo(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#2c2a2c'], [.6, '#5a4a3c'], [1, '#1a1410']]));
+  ridgeLayer(620, 280, 41, '#4a4440', u * 3); ridgeLayer(720, 220, 42, '#2e2a28', u * 6);
+  [420, 900, 1500].forEach((x, i) => smokeColumn(x, 700, u + i * 3, i * 20 + 5, 1.3, '30,26,24', .9));
+  [620, 1250].forEach((x, i) => glow(x, 690, 160, '255,120,40', .45 + .1 * Math.sin(u * 7 + i)));
+  ridgeLayer(900, 110, 43, '#120e0c', u * 10);
+  for (let i = 0; i < 22; i++) { const x = ((i * 95 + u * 40) % 2200) - 140, y = 900 - ridgeY(x + u * 10, 43, 110) + 4; walker(x, y, (i % 4 === 3 ? .6 : 1) * 1.05, u * 5 + i, i % 3 === 0); }
+  kicker('JANUARY 2025 · CATATUMBO', 960, 220, prog(u, .2, 1), '#f3e7d6');
+  revealTxt('80 DEAD · 50,000+ DISPLACED', 960, 310, prog(u, .4, 1.8), { size: 76, font: 'Cinzel', weight: 900, spacing: 4, fill: '#ffffff', glow: 24, glowColor: 'rgba(0,0,0,.9)' });
+  wipe("'TOTAL PEACE' COLLAPSES  ·  UN ESTIMATES", 960, 392, prog(u, 1.2, 2.4), { size: 22, weight: 800, spacing: 8, color: '#ffb29e', glow: 10, glowColor: 'rgba(0,0,0,.9)' });
+}
+function subVigil(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#050507'], [1, '#141009']]));
+  for (let i = 0; i < 60; i++) { const r = Math.floor(i / 15), x = 120 + (i % 15) * 120 + (r % 2) * 60 + (hash(i + 900) - .5) * 30, y = 700 + r * 70; if (u > i * .04) candle(x, y, .9 + r * .25, u, i); }
+  kicker('7 JUNE 2025 · BOGOTÁ', 960, 250, prog(u, .2, 1), '#f3e7d6');
+  revealTxt('MIGUEL URIBE TURBAY', 960, 345, prog(u, .4, 1.8), { size: 86, font: 'Cinzel', weight: 900, spacing: 6, fill: '#f6efe0', glow: 30, glowColor: 'rgba(255,180,80,.35)' });
+  wipe('SENATOR AND PRESIDENTIAL HOPEFUL  ·  1986 – 2025', 960, 430, prog(u, 1.2, 2.4), { size: 22, weight: 700, spacing: 8, color: '#e8d8b8' });
+}
+function stamp(x, y, text, sub, p, rot, col) {
+  if (p <= 0) return;
+  const s = 1 + 1.8 * (1 - eoexp(p)), o = { size: 70, font: 'Cinzel', weight: 900, spacing: 6 }, w = measure(text, o) + 90;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s); A(clamp(p * 3) * .92);
+  ctx.strokeStyle = col; ctx.lineWidth = 8; ctx.strokeRect(-w / 2, -78, w, 156); ctx.lineWidth = 3; ctx.strokeRect(-w / 2 + 12, -66, w - 24, 132);
+  txt(text, 0, -14, { ...o, color: col, alpha: clamp(p * 3) }); txt(sub, 0, 42, { size: 20, weight: 800, spacing: 10, color: col, alpha: clamp(p * 3) });
+  ctx.restore();
+}
+function subWashington(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#040810'], [.55, '#0d1a26'], [1, '#050a07']]));
+  for (let r = 0; r < 18; r++) { const z = r / 17, y = 560 + Math.pow(z, 1.7) * 520, sc = .2 + z * 1.25, dark = `rgb(${10 + z * 18 | 0},${38 + z * 52 | 0},${18 + z * 14 | 0})`, lite = `rgb(${24 + z * 30 | 0},${70 + z * 80 | 0},${30 + z * 18 | 0})`;
+    for (let x = -40 + (r % 2) * 34 * sc, k = 0; x < W + 40; x += 70 * sc, k++) { const jx = x + (hash(r * 97 + k) - .5) * 20 * sc, jy = y + (hash(r * 53 + k) - .5) * 6 * sc, sw = Math.sin(u * 1.5 + k + r) * 1.5 * sc; const bs = .75 + hash(r * 31 + k) * .5; circle(jx - 12 * sc * bs, jy, 14 * sc * bs, dark, 1); circle(jx + 12 * sc * bs, jy + 2 * sc, 13 * sc * bs, dark, 1); circle(jx + sw, jy - 9 * sc * bs, 15 * sc * bs, lite, .55); circle(jx + sw + 4 * sc, jy - 6 * sc * bs, 11 * sc * bs, dark, .9); } }
+  rect(0, 540, W, 220, vgrad(540, 760, [[0, 'rgba(8,16,26,.9)'], [1, 'rgba(8,16,26,0)']]));
+  const cp = eio(prog(u, .3, 1.8));
+  txt(Math.round(253000 * cp).toLocaleString('en-US'), 960, 260, { size: 120, font: 'Cinzel', weight: 900, color: '#d9f5c8', alpha: prog(u, .2, .6), glow: 30, glowColor: 'rgba(80,200,80,.3)' });
+  kicker('HECTARES OF COCA · A RECORD (UNODC, 2023)', 960, 350, prog(u, .6, 1.2), '#a9d99a', 22);
+  stamp(700, 540, 'DECERTIFIED', 'UNITED STATES · SEPTEMBER 2025', prog(u, 1.8, 2.4), -.1, '#e0473a');
+  stamp(1260, 730, 'SANCTIONED', 'U.S. TREASURY (OFAC) · OCTOBER 2025', prog(u, 3, 3.6), .08, '#e0473a');
+}
+function sPetro(lt) {
+  seq(lt, [[0, 5, subUngrd], [5, 10, subCatatumbo], [10, 15, subVigil], [15, 20, subWashington]], .6);
+  header(lt, 'IX', 'THE PETRO YEARS', '2022 – 2026');
+  caption(lt, .6, 4.8, 'Water trucks for La Guajira are bought at inflated prices; two ex-ministers are jailed');
+  caption(lt, 5.4, 9.8, 'The ELN and FARC dissidents clash; Petro suspends peace talks with the ELN');
+  caption(lt, 10.4, 14.8, 'Shot at a campaign rally in Bogotá, he dies of his wounds on 11 August');
+  caption(lt, 15.4, 19.8, 'Washington decertifies Colombia and sanctions President Petro');
+}
+function subElection(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#03050c'], [.7, '#0c1428'], [1, '#150d10']]));
+  stars(u, .5, 500);
+  [[0, 520, 260, '252,209,22'], [.6, 1400, 220, '80,130,255'], [1.2, 900, 180, '230,50,60'], [2, 1650, 300, '252,209,22'], [2.6, 300, 200, '230,50,60'], [3.4, 1100, 250, '80,130,255'], [4.2, 700, 190, '252,209,22'], [5, 1500, 260, '230,50,60'], [5.8, 450, 230, '80,130,255'], [6.5, 1250, 200, '252,209,22']].forEach(([t0, x, y, c], i) => firework(x, y, u - t0, c, i * 50));
+  glow(960, 980, 1100, '255,170,90', .4);
+  A(1); ctx.fillStyle = '#070912';
+  for (let x = 0; x < W; x += 60) { const h = 120 + hash(x * .3) * 260; A(1); ctx.fillStyle = '#070912'; ctx.fillRect(x, 880 - h, 56, h + 200); for (let k = 0; k < 6; k++) if (hash(x + k * 7) > .7) rect(x + 10 + (k % 2) * 22, 900 - h + 20 + k * 30, 12, 8, 'rgba(255,220,160,.35)', 1); }
+  A(1); ctx.fillStyle = '#070912'; ctx.beginPath(); ctx.moveTo(1480, 900); ctx.lineTo(1490, 440); ctx.lineTo(1545, 400); ctx.lineTo(1600, 440); ctx.lineTo(1610, 900); ctx.fill();
+  [[YEL, 450, 150], [BLU, 610, 110], [RED, 730, 110]].forEach(([c, y, h], k) => { const f = .55 + .25 * Math.sin(u * 3 + k); rect(1494, y, 112, h, c, f); });
+  glow(1545, 600, 380, '255,220,120', .18);
+  crowd(880, u, 23, '#02030a', { flags: true, bob: 6, n: 36 });
+  kicker('21 JUNE 2026', 960, 210, prog(u, .2, 1), '#fff4d8');
+  revealTxt('ABELARDO DE LA ESPRIELLA', 960, 300, prog(u, .4, 2), { size: 76, font: 'Cinzel', weight: 900, spacing: 4, fill: goldGrad(260, 340), glow: 30, glowColor: 'rgba(0,0,0,.95)' });
+  const vp = eio(prog(u, 2, 4.4));
+  txt((12.9 * vp).toFixed(1) + ' MILLION VOTES', 960, 410, { size: 64, font: 'Cinzel', weight: 900, color: '#fff', alpha: prog(u, 1.8, 2.3), glow: 20, glowColor: 'rgba(0,0,0,.9)' });
+  kicker('THE MOST IN COLOMBIAN HISTORY', 960, 475, prog(u, 4.4, 5.2), GOLD2, 20);
+}
+function subOath(u) {
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#1a2a52'], [.5, '#e8a868'], [.66, '#ffd79a'], [1, '#2a1a10']]));
+  glow(960, 640, 700, '255,220,150', .8);
+  rays(960, 640, -Math.PI / 2 - 1.3 + u * .01, 30, '255,236,190', .2, 1500, .35);
+  colonnade(960, 860, 1400, 360, '#140e0a', null, 1);
+  rect(0, 860, W, 220, '#0e0906');
+  const sp = eio(prog(u, .2, 1.8));
+  ctx.save(); ctx.translate(0, 900); ctx.rotate(-.08);
+  [[YEL, -84, 84], [BLU, 0, 42], [RED, 42, 42]].forEach(([c, o, h]) => { A(.95); ctx.fillStyle = c; ctx.fillRect(-100, o, (W + 400) * sp, h); });
+  const gx = ((u * 520) % 2600) - 300, sg = ctx.createLinearGradient(gx - 160, 0, gx + 160, 0);
+  sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(.5, 'rgba(255,255,255,.4)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+  A(sp); ctx.fillStyle = sg; ctx.fillRect(-100, -84, (W + 400) * sp, 168);
+  ctx.restore();
+  kicker('7 AUGUST 2026 · SWORN IN', 960, 220, prog(u, .2, 1), '#fff');
+  const tp = eoexp(prog(u, .5, 2)), s = 1.25 - .25 * tp;
+  ctx.save(); ctx.translate(960, 330); ctx.scale(s, s); txt('A MANDATE FOR ORDER', 0, 0, { size: 100, font: 'Cinzel', weight: 900, fill: goldGrad(-60, 60), alpha: tp, glow: 34, glowColor: 'rgba(60,20,0,.8)' }); ctx.restore();
+}
+function sEspr(lt) {
+  seq(lt, [[0, 7.5, subElection], [7.5, 15, subOath]], .6);
+  header(lt, 'IX', 'A NEW GOVERNMENT', '2026');
+  caption(lt, .8, 7.3, 'Abelardo de la Espriella wins the presidency with a record 12.9 million votes');
+  caption(lt, 7.8, 14.8, 'He takes office pledging to restore security and authority across the territory');
+}
+
+// ---- X. Colombia today (panorama) & finale ---------------------------------------------
+function hummingbird(x, y, t) {
+  ctx.save(); ctx.translate(x, y); A(1);
+  const wf = Math.sin(t * 60);
+  ctx.fillStyle = 'rgba(180,255,230,.35)'; ctx.beginPath(); ctx.ellipse(-4, -18, 10, 44, -.9 + wf * .5, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createLinearGradient(-40, 0, 40, 0); g.addColorStop(0, '#2356c9'); g.addColorStop(1, '#1fae8a');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 36, 13, -.25, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-30, 6); ctx.lineTo(-62, 22); ctx.lineTo(-56, 6); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#e0245e'; ctx.beginPath(); ctx.arc(26, -2, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1b8f6e'; ctx.beginPath(); ctx.arc(30, -10, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(38, -10); ctx.lineTo(82, -2); ctx.stroke();
+  circle(33, -12, 2, '#000');
+  ctx.fillStyle = 'rgba(180,255,230,.45)'; ctx.beginPath(); ctx.ellipse(4, -20, 10, 44, .9 + wf * .5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function sToday(lt) {
+  const pan = lt * 60;
+  rect(0, 0, W, H, vgrad(0, H, [[0, '#2f6fb0'], [.55, '#a9d4e8'], [.7, '#e9f2e0'], [1, '#2e5a2a']]));
+  glow(1450, 260, 520, '255,250,220', .7);
+  ridgeLayer(620, 300, 51, vgrad(320, 620, [[0, '#ffffff'], [.25, '#c9d6e6'], [.55, '#7d8fa8'], [1, '#56708a']]), pan * .2);
+  ridgeLayer(700, 220, 52, '#4d7a55', pan * .4);
+  const seaEnd = 900 - pan, coast = y => seaEnd + Math.sin(y * .02) * 30 + (y - 720) * .35;
+  if (seaEnd > -300) {
+    A(1); ctx.fillStyle = vgrad(720, H, [[0, '#2bb3c0'], [1, '#0a5c78']]); ctx.beginPath(); ctx.moveTo(0, 720); for (let y = 720; y <= H; y += 20) ctx.lineTo(coast(y), y); ctx.lineTo(0, H); ctx.fill();
+    A(.3); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; for (let k = 0; k < 10; k++) { const y = 740 + k * 34; ctx.beginPath(); for (let x = 0; x <= coast(y) - 10; x += 24) { const yy = y + Math.sin(x * .02 + lt * 2 + k) * 4; x ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); } ctx.stroke(); }
+    A(1); ctx.fillStyle = vgrad(720, H, [[0, '#f0dca8'], [1, '#c9a86a']]); ctx.beginPath(); for (let y = 720; y <= H; y += 20) ctx.lineTo(coast(y), y); for (let y = H; y >= 720; y -= 20) ctx.lineTo(coast(y) + 150 + (y - 720) * .2, y); ctx.fill();
+    [60, 150, 230].forEach((dx, i) => { const x = coast(900) + dx; if (x > -50 && x < W + 50) { A(1); ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(x, 900); ctx.quadraticCurveTo(x + 30, 780, x + 10 + i * 6, 680 + i * 20); ctx.stroke(); const tx = x + 10 + i * 6, ty = 680 + i * 20; ctx.strokeStyle = '#1f5a28'; ctx.lineWidth = 6; for (let f = 0; f < 7; f++) { const an = -Math.PI + f * Math.PI / 6 + Math.sin(lt * 1.5 + f + i) * .06; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.quadraticCurveTo(tx + Math.cos(an) * 50, ty + Math.sin(an) * 50 - 10, tx + Math.cos(an) * 90, ty + Math.sin(an) * 60 + 30); ctx.stroke(); } } });
+  }
+  hillLayer(820, 120, .0035, 1.5 + pan * .004, '#2e6b34');
+  for (let i = 0; i < 40; i++) { const x = ((1000 + i * 70 - pan * .8) % 2600 + 2600) % 2600 - 200; if (x > seaEnd + 320) { const y = 860 + Math.sin(i * 1.3) * 20, r = 70 + hash(i + 600) * 50, col = i % 2 ? '#1d5a2a' : '#144a22'; circle(x, y, r, col, 1); for (let k = 0; k < 3; k++) circle(x + (hash(i * 3 + k) - .5) * r, y - r * .55, r * .35, col, 1); A(.2); ctx.strokeStyle = '#bfe8a0'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, r, Math.PI * 1.2, Math.PI * 1.7); ctx.stroke(); } }
+  rect(0, 940, W, 140, '#123d1c');
+  hummingbird(1560 + Math.sin(lt * 1.3) * 14, 520 + Math.cos(lt * 1.7) * 10, lt);
+  rect(0, 0, W, H, 'rgba(0,20,10,1)', .25);
+  [['1,900+', 'BIRD SPECIES', 'More than any other country on Earth'], ['2', 'OCEANS', 'The Caribbean and the Pacific'], ['3', 'ANDEAN RANGES', 'The Western, Central and Eastern Cordilleras'], ['4,000+', 'ORCHID SPECIES', 'The orchid is the national flower'], ['50M+', 'PEOPLE', 'One diverse, resilient nation']].forEach(([n, l, d], i) => {
+    const t0 = .6 + i * 2.2, a = win(lt, t0, t0 + 2.2, .35); if (a <= 0) return;
+    const e = eo3(prog(lt, t0, t0 + .6)), off = (1 - e) * 40 - prog(lt, t0 + 1.85, t0 + 2.2) * 40;
+    txt(n, 960, 330 + off, { size: 150, font: 'Cinzel', weight: 900, color: '#fff', alpha: a, glow: 30, glowColor: 'rgba(0,0,0,.6)' });
+    kicker(l, 960, 440 + off, a, GOLD2, 28);
+    txt(d, 960, 490 + off, { size: 24, weight: 400, color: '#f0f4ea', alpha: a, glow: 10, glowColor: 'rgba(0,0,0,.8)' });
+  });
+  const mq = 'CUMBIA  ✦  VALLENATO  ✦  COFFEE  ✦  THE ANDES  ✦  THE AMAZON  ✦  CARIBBEAN  ✦  PACIFIC  ✦  LOS LLANOS  ✦  ';
+  const mo = { size: 40, font: 'Cinzel', weight: 700, color: GOLD2, spacing: 4, align: 'left', alpha: .9 * prog(lt, 11.4, 12.2) };
+  const mw = measure(mq, mo), off = -((lt * 130) % mw);
+  const mb = prog(lt, 11.4, 12.2); if (mb > 0) rect(0, 670, W, 60, vgrad(670, 730, [[0, 'rgba(0,0,0,0)'], [.5, 'rgba(0,0,0,.45)'], [1, 'rgba(0,0,0,0)']]), mb);
+  for (let x = off; x < W; x += mw) txt(mq, x, 700, mo);
+  header(lt, 'X', 'COLOMBIA TODAY', 'THE 21ST CENTURY');
+  caption(lt, 12, 14.8, 'Two oceans, three Andean ranges and the Amazon: one of the most biodiverse nations on Earth');
+}
+function sFinale(lt) {
+  rect(0, 0, W, H, '#02040a');
+  const p = eio(prog(lt, 0, 1.6)), xm = W * p, step = 16, fy = 60, fh = 960;
+  const wave = x => Math.sin(x * .005 - lt * 2.4) * 24 * (.3 + x / W);
+  const band = (o, h) => { ctx.beginPath(); for (let x = 0; x <= xm + step; x += step) { const y = fy + fh * o + wave(x); x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } for (let x = Math.ceil(xm / step) * step; x >= 0; x -= step) ctx.lineTo(x, fy + fh * (o + h) + wave(x) + 1); ctx.closePath(); };
+  [[YEL, 0, .5], [BLU, .5, .25], [RED, .75, .25]].forEach(([c, o, h]) => { A(1); ctx.fillStyle = c; band(o, h); ctx.fill(); });
+  const shade = ctx.createLinearGradient(0, 0, W, 0);
+  for (let k = 0; k <= 24; k++) { const x = k / 24 * W; shade.addColorStop(k / 24, `rgba(0,0,0,${(.5 - .22 * Math.cos(x * .005 - lt * 2.4)).toFixed(3)})`); }
+  A(1); ctx.fillStyle = shade; band(0, 1); ctx.fill();
+  const dg = ctx.createRadialGradient(960, 540, 100, 960, 540, 1000); dg.addColorStop(0, 'rgba(0,0,0,.72)'); dg.addColorStop(1, 'rgba(0,0,0,.25)');
+  rect(0, 0, W, H, dg);
+  glow(960, 520, 700, '255,200,90', .22 * prog(lt, 1, 2.5));
+  revealTxt('COLOMBIA', 960, 500, prog(lt, 1, 2.6), { size: 210, font: 'Cinzel', weight: 900, spacing: 26, fill: goldGrad(390, 610), glow: 40, glowColor: 'rgba(0,0,0,.95)' });
+  wipe('GOLD  ·  FIRE  ·  HOPE', 960, 650, prog(lt, 2.8, 4), { size: 34, weight: 700, spacing: 20, color: '#fff', glow: 14, glowColor: 'rgba(0,0,0,.9)' });
+  if (lt > 5) { const q = lt - 5; ring(960, 520, q * 1400, 'rgba(255,230,170,1)', 6, 1 - prog(q, 0, .9)); }
+  txt('ITS STORY IS STILL BEING WRITTEN', 960, 745, { size: 24, weight: 400, spacing: 12, color: '#f3e7c7', alpha: prog(lt, 5.3, 6.6), glow: 10, glowColor: 'rgba(0,0,0,.9)' });
+}
+
+// =====================================================================
+//  THEMES (MIDI) & TIMELINE — each scene: bars, chords, visuals, music, hits
+// =====================================================================
+const TA = [[[0, 2, 62], [2, 2, 69]], [[0, 1.5, 70], [1.5, .5, 69], [2, 1, 67], [3, 1, 65]], [[0, 2, 69], [2, 1, 72], [3, 1, 69]], [[0, 3, 67], [3, 1, 64]]];
+const TA2 = [[[0, 2, 62], [2, 2, 69]], [[0, 1.5, 70], [1.5, .5, 72], [2, 2, 74]], [[0, 1.5, 72], [1.5, .5, 70], [2, 2, 69]], [[0, 4, 67]]];
+const CLIMAX = [TA2[0], TA2[1], [[0, 4, 67]]];
+const FLUTE1 = [[[0, 1, 74], [1, .5, 72], [1.5, .5, 69], [2, 2, 67]], [[0, 1, 69], [1, 1, 72], [2, 2, 67]], [[0, 1, 74], [1, .5, 77], [1.5, .5, 74], [2, 2, 72]], [[0, 2, 69], [2, 1, 67], [3, 1, 65]], [[0, 2, 64], [2, 2, 69]]];
+const STR1 = [[[0, 4, 74]], [[0, 4, 72]], [[0, 2, 67], [2, 2, 72]], [[0, 4, 73]]];
+const STR2 = [[[0, 4, 69]], [[0, 4, 70]], [[0, 2, 74], [2, 2, 72]], [[0, 4, 73]]];
+const COFFEE = [[[0, 1.5, 72], [1.5, .5, 74], [2, 2, 77]], [[0, 2, 76], [2, 2, 72]], [[0, 4, 74]]];
+const BUTTER = [[[0, 2, 77], [2, 1, 76], [3, 1, 72]], [[0, 4, 72]]];
+const TENSE = [[[0, 4, 69]], [[0, 2, 70], [2, 2, 67]], [[0, 4, 73]]];
+const NUNEZ = [[[0, 2, 69], [2, 2, 72]], [[0, 3, 67], [3, 1, 64]], [[0, 2, 65], [2, 2, 69]], [[0, 4, 70]]];
+const ESPR = [[[0, 2, 65], [2, 2, 70]], [[0, 2, 67], [2, 2, 72]], [[0, 2, 69], [2, 2, 72]], [[0, 4, 73]]];
+const FINAL = [[[0, 2, 65], [2, 2, 70]], [[0, 2, 67], [2, 2, 72]], [[0, 8, 74]]];
+
+const SC = [
+  { bars: 4, ch: ['Dm', 'Dm', 'Bb', 'A'], draw: sIntro, hits: [[0, .6]], mus: (b, M) => {
+    M.R(b, 4, (x, i) => { M.pad(x, .25 + i * .04); M.bass(x, 'drone', .35); }); M.choir(b + 2, .3); M.choir(b + 3, .4);
+    M.drum(b + 1, 'sparse', .5); M.drum(b + 2, 'sparse', .6); M.drum(b + 3, 'build', .7); M.braam(M.T(b), 5, 38, .6); M.swell(M.T(b + 4), 2.5, .6); } },
+  { bars: 6, ch: ['Dm', 'C', 'Dm', 'C', 'Dm', 'A'], draw: sAncient, hits: [[0, .35]], mus: (b, M) => {
+    M.R(b, 6, x => { M.pad(x, .25); M.bass(x, 'drone', .33); }); M.R(b + 1, 5, (x, i) => M.drum(x, 'hand', .35 + i * .03));
+    M.mel(b, [...FLUTE1.slice(0, 4), [[0, 4, 69]], FLUTE1[4]], 'flute', 0, .5); M.choir(b + 4, .3); M.choir(b + 5, .35); M.swell(M.T(b + 6), 2.5, .7); } },
+  { bars: 6, ch: ['Dm', 'Bb', 'F', 'C', 'Dm', 'A'], draw: sConquest, hits: [[0, .6]], mus: (b, M) => {
+    M.R(b, 6, x => { M.pad(x, .3); M.bass(x, '8', .45); }); M.ost(b, '8th', .28); M.R(b + 1, 5, x => M.ost(x, '16th', .3));
+    M.drum(b, 'sparse', .7); M.R(b + 1, 4, (x, i) => M.drum(x, 'epic', .7 + i * .03)); M.drum(b + 5, 'build', .8);
+    M.mel(b, TA, 'horn', -12, .55); M.mel(b + 4, [[[0, 4, 62]], [[0, 2, 64], [2, 2, 61]]], 'horn', -12, .5); M.choir(b + 4, .3); M.choir(b + 5, .35); M.swell(M.T(b + 6), 2.5, .7); } },
+  { bars: 6, ch: ['Bb', 'F', 'C', 'A', 'Bb', 'A'], draw: sColony, hits: [[0, .45]], mus: (b, M) => {
+    M.R(b, 6, x => { M.pad(x, .35); M.bass(x, '8', .42); M.ost(x, '8th', .26); M.choir(x, .3); }); M.R(b, 5, x => M.drum(x, 'half', .6)); M.drum(b + 5, 'build', .7);
+    M.mel(b, [...STR1, [[0, 4, 74]], [[0, 4, 73]]], 'str', 0, .3); M.swell(M.T(b + 6), 2, .6); } },
+  { bars: 9, ch: ['Dm', 'Dm', 'Bb', 'Gm', 'A', 'Dm', 'Bb', 'C', 'F'], draw: sIndep, hits: [[0, .5], [2.5, .9], [12.5, 1]], mus: (b, M) => {
+    M.pad(b, .3); M.pad(b + 1, .32); M.pad(b + 2, .35); M.bass(b, 'drone', .4); M.bass(b + 1, '8', .5); M.bass(b + 2, '8', .5);
+    M.ost(b, '8th', .22); M.ost(b + 1, '16th', .3); M.ost(b + 2, '16th', .32); M.drum(b, 'sparse', .6); M.drum(b + 1, 'epic', .75); M.drum(b + 2, 'epic', .8); M.choir(b + 2, .35);
+    M.R(b + 3, 2, x => { M.pad(x, .36); M.bass(x, '8', .5); M.ost(x, '16th', .33); M.brass(x, .5); }); M.drum(b + 3, 'march', .75); M.drum(b + 4, 'build', .9); M.swell(M.T(b + 5), 5, 1);
+    M.R(b + 5, 4, x => { M.pad(x, .45); M.bass(x, '8', .55); M.ost(x, '16th', .34); M.brass(x, .55); M.choir(x, .45); });
+    M.drum(b + 5, 'epic', 1); M.drum(b + 6, 'epic', 1); M.drum(b + 7, 'epic', 1); M.drum(b + 8, 'half', .75); M.braam(M.T(b + 5), 3, 38, .7);
+    const C = [...CLIMAX, [[0, 2, 69], [2, 2, 72]]]; M.mel(b + 5, C, 'horn', 0, .7); M.mel(b + 5, C, 'str', 12, .22); M.swell(M.T(b + 9), 2.5, .7); } },
+  { bars: 5, ch: ['F', 'C', 'Dm', 'Bb', 'A'], draw: sGran, hits: [[0, .5], [8.75, .5]], mus: (b, M) => {
+    M.R(b, 5, x => { M.pad(x, .38); M.choir(x, .4); }); M.bass(b, '8', .45); M.bass(b + 1, '8', .45); M.R(b + 2, 3, x => M.bass(x, 'drone', .35));
+    M.R(b, 3, x => M.ost(x, '8th', .27)); M.drum(b, 'half', .6); M.drum(b + 1, 'half', .65); M.drum(b + 2, 'half', .55); M.drum(b + 4, 'sparse', .5);
+    M.mel(b, [[[0, 2, 69], [2, 2, 72]], [[0, 3, 67], [3, 1, 64]], [[0, 2, 65], [2, 2, 62]], [[0, 4, 62]], [[0, 4, 61]]], 'horn', 0, .55); M.swell(M.T(b + 5), 2.5, .7); } },
+  { bars: 4, ch: ['Dm', 'Gm', 'Bb', 'A'], draw: sRepublic, hits: [[0, .5]], mus: (b, M) => {
+    M.R(b, 4, x => { M.pad(x, .32); M.bass(x, '8', .45); M.ost(x, '16th', .3); }); M.drum(b, 'half', .6); M.drum(b + 1, 'half', .6); M.drum(b + 2, 'march', .65); M.drum(b + 3, 'march', .7);
+    M.mel(b, STR2, 'str', 0, .28); M.swell(M.T(b + 4), 2, .6); } },
+  { bars: 5, ch: ['F', 'C', 'Dm', 'Bb', 'A'], draw: sNunez, hits: [[0, .55]], mus: (b, M) => {
+    M.R(b, 5, x => { M.pad(x, .4); M.bass(x, 'drone', .4); M.choir(x, .4); M.ost(x, '8th', .24); });
+    M.drum(b, 'sparse', .6); M.drum(b + 1, 'half', .6); M.drum(b + 2, 'half', .65); M.drum(b + 3, 'half', .65); M.drum(b + 4, 'build', .75);
+    const N = [...NUNEZ, [[0, 4, 69]]]; M.mel(b, N, 'horn', 0, .6); M.mel(b, N, 'str', 12, .2); M.swell(M.T(b + 5), 2, .8); } },
+  { bars: 4, ch: ['Dm', 'Gm', 'A', 'Dm'], draw: sWar, hits: [[0, .9], [5, .6]], mus: (b, M) => {
+    M.R(b, 4, x => { M.pad(x, .42); M.bass(x, '8', .55); M.ost(x, '16th', .34); M.choir(x, .4); }); M.brass(b, .55); M.brass(b + 1, .55);
+    M.drum(b, 'epic', .95); M.drum(b + 1, 'epic', .95); M.drum(b + 2, 'half', .7); M.drum(b + 3, 'build', .8); M.braam(M.T(b), 3, 38, .6);
+    M.mel(b + 2, [[[0, 4, 69]], [[0, 2, 65], [2, 2, 62]]], 'str', 0, .3); M.swell(M.T(b + 4), 2.5, .8); } },
+  { bars: 3, ch: ['F', 'C', 'Dm'], draw: sCoffee, hits: [[0, .3]], mus: (b, M) => {
+    M.R(b, 3, x => { M.pad(x, .25); M.bass(x, 'drone', .3); M.pluck(x, .35); M.drum(x, 'hand', .37); }); M.mel(b, COFFEE, 'flute', 0, .45); M.swell(M.T(b + 3), 2.5, .9); } },
+  { bars: 3, ch: ['Dm', 'Gm', 'A'], draw: sBogotazo, hits: [[0, .9]], mus: (b, M) => {
+    M.R(b, 3, x => { M.pad(x, .38); M.bass(x, '8', .5); M.ost(x, '16th', .32); M.brass(x, .5); M.choir(x, .35); }); M.drum(b, 'epic', .9); M.drum(b + 1, 'epic', .9); M.drum(b + 2, 'build', .9);
+    M.braam(M.T(b), 3.5, 38, .6); M.swell(M.T(b + 3), 2, .7); } },
+  { bars: 5, ch: ['Dm', 'Dm', 'Bb', 'Gm', 'A'], draw: sRojas, hits: [[0, .7], [5.2, .45]], mus: (b, M) => {
+    M.R(b, 5, x => { M.pad(x, .35); M.bass(x, '8', .45); M.ost(x, '16th', .3); }); M.brass(b, .5); M.brass(b + 1, .5);
+    M.drum(b, 'march', .7); M.drum(b + 1, 'march', .7); M.drum(b + 2, 'march', .72); M.drum(b + 3, 'half', .6); M.drum(b + 4, 'build', .7); M.choir(b + 3, .35); M.choir(b + 4, .35);
+    M.mel(b, [[[0, 4, 62]], [[0, 2, 65], [2, 2, 69]], [[0, 4, 70]], [[0, 4, 67]], [[0, 4, 64]]], 'str', 0, .3); M.swell(M.T(b + 5), 2, .6); } },
+  { bars: 3, ch: ['F', 'Bb', 'C'], draw: sFront, hits: [[0, .35]], mus: (b, M) => {
+    M.R(b, 3, x => { M.pad(x, .32); M.pluck(x, .25); M.choir(x, .35); M.bass(x, 'drone', .3); }); M.drum(b, 'sparse', .4); M.drum(b + 1, 'sparse', .4); M.drum(b + 2, 'half', .5);
+    M.mel(b, [[[0, 4, 69]], [[0, 4, 70]], [[0, 4, 72]]], 'str', 0, .28); M.swell(M.T(b + 3), 2, .5); } },
+  { bars: 3, ch: ['Dm', 'Dm', 'A'], draw: sGuerrilla, hits: [[0, .5]], mus: (b, M) => {
+    M.R(b, 3, x => { M.pad(x, .25); M.bass(x, 'drone', .42); M.ost(x, '8th', .22); M.drum(x, 'hand', .45); }); M.mel(b, [[[0, 4, 57]], [[0, 2, 60], [2, 2, 57]], [[0, 4, 57]]], 'horn', 0, .45); } },
+  { bars: 3, ch: ['F', 'C', 'F'], draw: sMacondo, hits: [[0, .3]], mus: (b, M) => {
+    M.R(b, 3, x => { M.pad(x, .28); M.pluck(x, .3); M.choir(x, .3); }); M.drum(b, 'sparse', .3); M.mel(b, [...BUTTER, [[0, 4, 69]]], 'flute', 0, .45); M.swell(M.T(b + 3), 2.5, .8); } },
+  { bars: 5, ch: ['Dm', 'Gm', 'Dm', 'Gm', 'A'], draw: sMagni, hits: [[0, .8], [5, .4]], mus: (b, M) => {
+    M.R(b, 5, (x, i) => { M.pad(x, .36); M.bass(x, i < 2 ? '8' : 'drone', .45); }); M.ost(b, '16th', .32); M.ost(b + 1, '16th', .32); M.brass(b, .5); M.brass(b + 1, .5);
+    M.drum(b, 'epic', .85); M.drum(b + 1, 'epic', .85); M.R(b + 2, 3, x => { M.drum(x, 'sparse', .5); M.choir(x, .42); }); M.braam(M.T(b), 3, 38, .55);
+    M.mel(b + 2, [[[0, 4, 69]], [[0, 2, 70], [2, 2, 67]], [[0, 4, 64]]], 'str', 0, .3); M.swell(M.T(b + 5), 2.5, .7); } },
+  { bars: 4, ch: ['Dm', 'Bb', 'F', 'C'], draw: sConst, hits: [[0, .6]], mus: (b, M) => {
+    M.R(b, 4, x => { M.pad(x, .4); M.choir(x, .42); M.ost(x, '8th', .28); M.bass(x, '8', .4); }); M.drum(b, 'half', .6); M.drum(b + 1, 'half', .6); M.drum(b + 2, 'half', .65); M.drum(b + 3, 'build', .7);
+    M.mel(b, [[[0, 4, 69]], [[0, 4, 70]], [[0, 2, 72], [2, 2, 69]], [[0, 4, 72]]], 'str', 0, .32); M.swell(M.T(b + 4), 2.5, .7); } },
+  { bars: 5, ch: ['Dm', 'Bb', 'Gm', 'A', 'Dm'], draw: sGomez, hits: [[0, .6]], mus: (b, M) => {
+    M.R(b, 5, x => { M.pad(x, .35); M.choir(x, .45); M.bass(x, 'drone', .38); M.drum(x, 'sparse', .45); });
+    M.mel(b, [[[0, 3, 69], [3, 1, 67]], [[0, 2, 65], [2, 2, 62]], [[0, 4, 67]], [[0, 2, 64], [2, 2, 61]], [[0, 4, 62]]], 'horn', 0, .5); M.swell(M.T(b + 5), 2.5, .8); } },
+  { bars: 7, ch: ['Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'A'], draw: sUribe, hits: [[0, .7], [12.5, .6]], mus: (b, M) => {
+    M.R(b, 7, x => { M.pad(x, .42); M.bass(x, '8', .5); M.ost(x, '16th', .32); M.brass(x, .5); M.choir(x, .4); });
+    ['epic', 'march', 'epic', 'epic', 'half', 'epic', 'build'].forEach((k, i) => M.drum(b + i, k, k === 'half' ? .7 : .92)); M.braam(M.T(b), 3, 38, .6);
+    const U = [...TA2, [[0, 2, 62], [2, 2, 69]], [[0, 2, 70], [2, 2, 74]], [[0, 4, 73]]]; M.mel(b, U, 'horn', 0, .7); M.mel(b, U, 'str', 12, .22); M.swell(M.T(b + 7), 2.5, .8); } },
+  { bars: 6, ch: ['Dm', 'Gm', 'A', 'Dm', 'Gm', 'A'], draw: sPleb, hits: [[0, .5], [5, .5], [10, .6]], mus: (b, M) => {
+    M.R(b, 6, x => { M.pad(x, .35); M.choir(x, .36); M.ost(x, '16th', .26); }); M.R(b, 2, x => M.bass(x, 'drone', .38)); M.R(b + 2, 4, x => M.bass(x, '8', .42));
+    ['sparse', 'half', 'sparse', 'half', 'half', 'build'].forEach((k, i) => M.drum(b + i, k, .6 + i * .05));
+    M.mel(b, [...TENSE, ...TENSE], 'str', 0, .3); M.mel(b, [...TENSE, ...TENSE], 'str', -12, .2); M.swell(M.T(b + 6), 2.5, 1); } },
+  { bars: 8, ch: ['Dm', 'Bb', 'Gm', 'A', 'Dm', 'Bb', 'Gm', 'A'], draw: sPetro, hits: [[0, .6], [5, .6], [10, .45], [15, .7]], mus: (b, M) => {
+    M.R(b, 8, x => M.pad(x, .38)); ['8', '8', '8', '8', 'drone', 'drone', '8', '8'].forEach((k, i) => M.bass(b + i, k, .45));
+    ['16th', '16th', '16th', '16th', '8th', '8th', '16th', '16th'].forEach((k, i) => M.ost(b + i, k, .3));
+    ['half', 'half', 'epic', 'epic', 'sparse', 'sparse', 'epic', 'build'].forEach((k, i) => M.drum(b + i, k, k === 'epic' ? .9 : .65));
+    M.choir(b + 4, .45); M.choir(b + 5, .45); M.brass(b + 2, .5); M.brass(b + 3, .5); M.brass(b + 6, .55); M.braam(M.T(b), 3, 38, .55); M.braam(M.T(b + 6), 3, 38, .6);
+    const P = [[[0, 4, 69]], [[0, 4, 70]], [[0, 2, 70], [2, 2, 67]], [[0, 4, 73]]]; M.mel(b, [...P, ...P], 'str', 0, .3); M.swell(M.T(b + 8), 2.5, 1); } },
+  { bars: 6, ch: ['Bb', 'C', 'F', 'A', 'Bb', 'C'], draw: sEspr, hits: [[0, .8], [7.5, .6]], mus: (b, M) => {
+    M.R(b, 6, x => { M.pad(x, .45); M.bass(x, '8', .5); M.ost(x, '16th', .34); M.brass(x, .5); M.choir(x, .45); });
+    ['epic', 'epic', 'build', 'epic', 'epic', 'build'].forEach((k, i) => M.drum(b + i, k, .97)); M.braam(M.T(b), 3, 34, .6);
+    const E = [...ESPR, [[0, 2, 65], [2, 2, 70]], [[0, 2, 67], [2, 2, 72]]]; M.mel(b, E, 'horn', 0, .75); M.mel(b, E, 'str', 12, .25); M.swell(M.T(b + 6), 2.5, .9); } },
+  { bars: 6, ch: ['Dm', 'Bb', 'F', 'C', 'Bb', 'A'], draw: sToday, hits: [[0, .9]], mus: (b, M) => {
+    M.R(b, 6, x => { M.pad(x, .48); M.bass(x, '8', .55); M.ost(x, '16th', .35); M.brass(x, .5); M.choir(x, .45); }); M.R(b, 5, x => M.drum(x, 'epic', 1)); M.drum(b + 5, 'build', 1);
+    const T = [TA2[0], TA2[1], TA2[2], [[0, 4, 67]], [[0, 2, 65], [2, 2, 70]], [[0, 2, 64], [2, 2, 61]]]; M.mel(b, T, 'horn', 0, .75); M.mel(b, T, 'str', 12, .25); M.swell(M.T(b + 6), 5, 1); } },
+  { bars: 4, ch: ['Bb', 'C', 'D', 'D'], draw: sFinale, hits: [[0, 1], [5, 1]], mus: (b, M) => {
+    M.pad(b, .5); M.pad(b + 1, .5); M.pad(b + 2, .55, 2); M.bass(b, '8', .55); M.bass(b + 1, '8', .55); M.bass(b + 2, 'drone', .6, 2);
+    M.ost(b, '16th', .35); M.ost(b + 1, '16th', .35); M.brass(b, .5); M.brass(b + 1, .5); M.choir(b, .45); M.choir(b + 1, .45); M.choir(b + 2, .5, 2);
+    M.drum(b, 'epic', 1); M.drum(b + 1, 'build', 1); M.braam(M.T(b), 3, 34, .7); M.braam(M.T(b + 2), 5, 38, .7);
+    voicing('D', 50).forEach(m => M.brassNote(M.T(b + 2), 5, m, .6)); M.brassNote(M.T(b + 2), 5, 38, .5);
+    M.mel(b, FINAL, 'horn', 0, .8); M.mel(b, FINAL, 'str', 12, .28); } }
+];
+{ let acc = 0; SC.forEach(s => { if (s.ch.length !== s.bars) throw new Error('chord count mismatch in ' + s.draw.name); s.b0 = acc; s.start = acc * BAR; s.dur = s.bars * BAR; acc += s.bars; }); }
+const DUR = SC.reduce((a, s) => a + s.dur, 0); // 300 s
+const PROG = SC.flatMap(s => s.ch);
+const HITS = SC.flatMap(s => s.hits.map(([lt, v]) => ({ t: s.start + lt, s: v })));
+
+// =====================================================================
+//  COMPOSITOR
+// =====================================================================
+const grain = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'), d = g.createImageData(256, 256); for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } g.putImageData(d, 0, 0); return ctx.createPattern(c, 'repeat'); })();
+const vign = (() => { const g = ctx.createRadialGradient(960, 540, 380, 960, 540, 1150); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.62)'); return g; })();
+
+function render(T) {
+  T = clamp(T, 0, DUR);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  let sh = 0; for (const h of HITS) { const d = T - h.t; if (d >= 0 && d < .7) sh += h.s * Math.exp(-d * 8); }
+  const sx = (hash(Math.floor(T * 60)) - .5) * 22 * sh, sy = (hash(Math.floor(T * 60) + 7) - .5) * 22 * sh, zs = 1 + .025 * Math.min(sh, 1) + .015;
+  ctx.setTransform(zs, 0, 0, zs, W / 2 * (1 - zs) + sx, H / 2 * (1 - zs) + sy);
+  for (const s of SC) {
+    const a = s.start, b = s.start + s.dur;
+    if (T >= a - .4 && T < b + .4) {
+      SA = (a === 0 ? 1 : clamp((T - (a - .4)) / .8)) * (b >= DUR ? 1 : clamp((b + .4 - T) / .8));
+      if (SA > 0) { ctx.save(); s.draw(T - a); ctx.restore(); }
+    }
+  }
+  SA = 1;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 70; i++) { const x = ((hash(i) * W + T * 14 * (hash(i + 1) - .3)) % W + W) % W, y = ((hash(i + 2) * H - T * 10 * (.3 + hash(i + 3))) % H + H) % H; ctx.globalAlpha = .25 * (.4 + .6 * Math.abs(Math.sin(T * (.6 + hash(i + 4)) + i))); ctx.fillStyle = '#ffe2a8'; ctx.beginPath(); ctx.arc(x, y, 1 + hash(i + 5) * 1.8, 0, 6.3); ctx.fill(); }
+  let fl = 0; for (const h of HITS) { const d = T - h.t; if (d >= 0 && d < 1.5) fl += h.s * Math.exp(-d * 5) * .75; }
+  if (fl > .01) { ctx.globalAlpha = Math.min(fl, .9); ctx.fillStyle = '#fff0d2'; ctx.fillRect(0, 0, W, H); }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1; ctx.fillStyle = vign; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalAlpha = .045; ctx.translate(Math.floor(hash(T * 24) * 256), Math.floor(hash(T * 24 + 3) * 256)); ctx.fillStyle = grain; ctx.fillRect(-256, -256, W + 512, H + 512); ctx.restore();
+  ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, 40); ctx.fillRect(0, H - 40, W, 40);
+  const fo = Math.max(1 - prog(T, 0, 1.2), prog(T, DUR - 2.2, DUR));
+  if (fo > 0) { ctx.globalAlpha = fo; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+window.renderAt = render;
+
+// =====================================================================
+//  SCORE — original orchestral cue rendered offline with the Web Audio API
+// =====================================================================
+const CH = { Dm: [38, [0, 3, 7]], Bb: [46, [0, 4, 7]], F: [41, [0, 4, 7]], C: [36, [0, 4, 7]], Gm: [43, [0, 3, 7]], A: [45, [0, 4, 7]], D: [38, [0, 4, 7]] };
+function voicing(ch, lo) { const [r, iv] = CH[ch]; return iv.map(i => { let n = r + i; while (n < lo) n += 12; while (n >= lo + 12) n -= 12; return n; }).sort((a, b) => a - b); }
+
+async function composeScore(onProgress) {
+  const SR = 44100, oc = new OfflineAudioContext(2, Math.ceil(SR * DUR), SR);
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  const master = oc.createGain(); master.gain.setValueAtTime(1, 0); master.gain.setValueAtTime(1, DUR - 3.5); master.gain.linearRampToValueAtTime(0, DUR);
+  const comp = oc.createDynamicsCompressor(); comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 3.5; comp.attack.value = .008; comp.release.value = .3;
+  master.connect(comp); comp.connect(oc.destination);
+  const ir = oc.createBuffer(2, SR * 4, SR);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3) * (i < SR * .02 ? i / (SR * .02) : 1); }
+  const rev = oc.createConvolver(); rev.buffer = ir; const revOut = oc.createGain(); revOut.gain.value = .5; rev.connect(revOut); revOut.connect(master);
+  const NB = oc.createBuffer(1, SR * 2, SR); { const d = NB.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  function bus(pan, dry, wet) { const g = oc.createGain(), p = oc.createStereoPanner(); p.pan.value = pan; g.connect(p); const d = oc.createGain(); d.gain.value = dry; const w = oc.createGain(); w.gain.value = wet; p.connect(d); p.connect(w); d.connect(master); w.connect(rev); return g; }
+  const B = { str: bus(-.25, .7, .55), strR: bus(.25, .7, .55), brass: bus(.1, .8, .4), horn: bus(0, .85, .45), choir: bus(0, .55, .75), flute: bus(.15, .7, .55), pluck: bus(-.15, .8, .35), ostL: bus(-.35, .75, .3), ostR: bus(.35, .75, .3), bass: bus(0, .95, .08), drums: bus(0, .9, .28), fx: bus(0, .7, .55) };
+
+  let CUR = null; // gain nodes of the note being built, released once it has finished
+  const gainNode = (dest, v = 0) => { const g = oc.createGain(); g.gain.value = v; g.connect(dest); if (CUR) CUR.push(g); return g; };
+  const filt = (type, f, q, dest) => { const b = oc.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.connect(dest); return b; };
+  const osc = (type, f, t0, t1, dest, det = 0) => { const o = oc.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det; o.connect(dest); o.start(t0); o.stop(t1); return o; };
+  const adsr = (g, t, a, peak, d, r) => { const hold = Math.max(a, d); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.setValueAtTime(peak, t + hold); g.gain.linearRampToValueAtTime(0, t + hold + r); return t + hold + r; };
+  const vibrato = (targets, t, end, depth = 12, rate = 5.2, delay = .6) => { const l = oc.createOscillator(); l.frequency.value = rate; const lg = oc.createGain(); lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(depth, t + delay); l.connect(lg); targets.forEach(o => lg.connect(o.detune)); l.start(t); l.stop(end); };
+  const noiseSrc = (t, dur, dest) => { const s = oc.createBufferSource(); s.buffer = NB; s.loop = true; s.connect(dest); s.start(t, Math.random() * 1.5); s.stop(t + dur); };
+
+  // ---- instruments ----
+  let strings = (t, d, m, v, dest = B.str, att = .35) => { const f = mtof(m), g = gainNode(dest), end = adsr(g, t, att, v * .07, d, .9), lp = filt('lowpass', Math.min(1400 + f * 2, 6000), .3, g); for (const dt of [-10, -3, 6, 12]) osc('sawtooth', f, t, end + .05, lp, dt); };
+  let brass = (t, d, m, v) => { const f = mtof(m), g = gainNode(B.brass), end = adsr(g, t, .05, v * .12, d, .35), lp = filt('lowpass', 300, 1.2, g); lp.frequency.setValueAtTime(300, t); lp.frequency.exponentialRampToValueAtTime(Math.min(2600, f * 8), t + .09); lp.frequency.exponentialRampToValueAtTime(Math.min(1400, f * 4), t + .5); for (const dt of [-6, 5]) osc('sawtooth', f, t, end + .05, lp, dt); };
+  let horn = (t, d, m, v) => { const f = mtof(m), g = gainNode(B.horn), end = adsr(g, t, .09, v * .16, d, .45), lp = filt('lowpass', Math.min(2200, f * 5), .7, g); const o1 = osc('sawtooth', f, t, end + .05, lp, -4), o2 = osc('sawtooth', f, t, end + .05, lp, 4); osc('triangle', f / 2, t, end + .05, lp); vibrato([o1, o2], t, end + .05, 14, 5.2, Math.min(.8, d)); };
+  let choir = (t, d, m, v) => { const f = mtof(m), g = gainNode(B.choir), end = adsr(g, t, .7, v * .5, d, 1.3), mix = oc.createGain(); [[700, 5, 1], [1150, 7, .55], [2700, 9, .3]].forEach(([ff, q, gg]) => mix.connect(filt('bandpass', ff, q, gainNode(g, gg)))); const o1 = osc('sawtooth', f, t, end + .05, mix, -7), o2 = osc('sawtooth', f, t, end + .05, mix, 7); vibrato([o1, o2], t, end + .05, 10, 4.8, 1); };
+  let flute = (t, d, m, v) => { const f = mtof(m), g = gainNode(B.flute), end = adsr(g, t, .08, v * .2, d, .25), lp = filt('lowpass', f * 3, .5, g); const o = osc('triangle', f, t, end + .05, lp); osc('sine', f * 2, t, end + .05, gainNode(lp, .15)); vibrato([o], t, end + .05, 16, 5.5, .35); noiseSrc(t, end - t + .05, filt('bandpass', f * 1.5, 1, gainNode(g, .05))); };
+  let pluck = (t, m, v) => { const f = mtof(m), g = gainNode(B.pluck); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v * .22, t + .004); g.gain.exponentialRampToValueAtTime(.0008, t + .9); const lp = filt('lowpass', f * 8, 2, g); lp.frequency.setValueAtTime(Math.min(f * 10, 9000), t); lp.frequency.exponentialRampToValueAtTime(f * 1.2, t + .35); osc('sawtooth', f, t, t + .95, lp); osc('triangle', f * 2, t, t + .95, gainNode(lp, .4)); };
+  let ost = (t, m, v, dest) => { const f = mtof(m), g = gainNode(dest); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v * .13, t + .006); g.gain.exponentialRampToValueAtTime(.001, t + .2); const lp = filt('lowpass', Math.min(f * 6, 5000), .8, g); osc('sawtooth', f, t, t + .22, lp, -5); osc('sawtooth', f, t, t + .22, lp, 5); };
+  let bass = (t, d, m, v) => { const f = mtof(m), g = gainNode(B.bass), end = adsr(g, t, .015, v * .3, d, .15), lp = filt('lowpass', 420, .8, g); osc('sawtooth', f, t, end + .05, lp); osc('sine', f, t, end + .05, gainNode(g, .8)); };
+  let taiko = (t, v) => { const g = gainNode(B.drums); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .004); g.gain.exponentialRampToValueAtTime(.001, t + 1); const o = oc.createOscillator(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(52, t + .16); o.connect(g); o.start(t); o.stop(t + 1.05); const ng = gainNode(B.drums); ng.gain.setValueAtTime(v * .55, t); ng.gain.exponentialRampToValueAtTime(.001, t + .14); noiseSrc(t, .16, filt('lowpass', 1100, .7, ng)); };
+  let tom = (t, v, f = 160) => { const g = gainNode(B.drums); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v * .6, t + .004); g.gain.exponentialRampToValueAtTime(.001, t + .45); const o = oc.createOscillator(); o.frequency.setValueAtTime(f * 1.6, t); o.frequency.exponentialRampToValueAtTime(f, t + .08); o.connect(g); o.start(t); o.stop(t + .5); };
+  let snare = (t, v) => { const ng = gainNode(B.drums); ng.gain.setValueAtTime(v * .4, t); ng.gain.exponentialRampToValueAtTime(.001, t + .2); noiseSrc(t, .22, filt('bandpass', 2400, .8, ng)); const g = gainNode(B.drums); g.gain.setValueAtTime(v * .3, t); g.gain.exponentialRampToValueAtTime(.001, t + .09); osc('triangle', 190, t, t + .1, g); };
+  let crash = (t, v) => { const g = gainNode(B.fx); g.gain.setValueAtTime(v * .28, t); g.gain.exponentialRampToValueAtTime(.001, t + 3.2); noiseSrc(t, 3.3, filt('highpass', 3800, .6, g)); };
+  let swell = (tEnd, dur, v) => { const t = tEnd - dur, g = gainNode(B.fx); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(v * .3, tEnd - .02); g.gain.linearRampToValueAtTime(0, tEnd + .02); const hp = filt('highpass', 500, .7, g); hp.frequency.setValueAtTime(500, t); hp.frequency.exponentialRampToValueAtTime(6000, tEnd); noiseSrc(t, dur + .05, hp); const g2 = gainNode(B.fx); g2.gain.setValueAtTime(.0001, t); g2.gain.exponentialRampToValueAtTime(v * .05, tEnd - .02); g2.gain.linearRampToValueAtTime(0, tEnd + .02); const o = osc('sawtooth', 110, t, tEnd + .05, filt('lowpass', 2000, 1, g2)); o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(880, tEnd); };
+  let boom = (t, v) => { const g = gainNode(B.bass); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v * .9, t + .01); g.gain.exponentialRampToValueAtTime(.001, t + 2.6); const o = oc.createOscillator(); o.frequency.setValueAtTime(75, t); o.frequency.exponentialRampToValueAtTime(30, t + 1.6); o.connect(g); o.start(t); o.stop(t + 2.7); taiko(t, v); crash(t, v * .8); };
+  let braam = (t, d, m, v) => { const g = gainNode(B.brass), end = adsr(g, t, .06, v * .09, d, 1.4), lp = filt('lowpass', 150, 2, g); lp.frequency.setValueAtTime(150, t); lp.frequency.exponentialRampToValueAtTime(2400, t + .35); lp.frequency.exponentialRampToValueAtTime(380, t + d); for (const mm of [m - 12, m, m + 7]) for (const dt of [-12, 0, 12]) osc('sawtooth', mtof(mm), t, end + .05, lp, dt); };
+
+  // Lazy scheduling: notes are queued, then built just before they sound (via suspend),
+  // so the graph only ever holds a few seconds of nodes instead of the whole film.
+  const Q = []; let direct = false;
+  const lazy = (fn, isSwell = false) => (...a) => { if (direct) return fn(...a); Q.push([isSwell ? a[0] - a[1] : a[0], () => fn(...a)]); };
+  strings = lazy(strings); brass = lazy(brass); horn = lazy(horn); choir = lazy(choir); flute = lazy(flute); pluck = lazy(pluck);
+  ost = lazy(ost); bass = lazy(bass); taiko = lazy(taiko); tom = lazy(tom); snare = lazy(snare); crash = lazy(crash);
+  swell = lazy(swell, true); boom = lazy(boom); braam = lazy(braam);
+  const strLead = (t, d, m, v) => strings(t, d, m, v * 1.5, B.strR, .15);
+
+  // ---- bar-level helpers (M) used by each scene's music ----
+  const T = b => b * BAR;
+  const M = {
+    T, R: (a, n, f) => { for (let i = 0; i < n; i++) f(a + i, i); },
+    pad: (b, v, bars = 1) => { const vo = voicing(PROG[b], 55); let low = CH[PROG[b]][0]; while (low < 45) low += 12; vo.forEach((m, i) => strings(T(b), BAR * bars, m, v, i % 2 ? B.strR : B.str)); strings(T(b), BAR * bars, low, v * .8); },
+    choir: (b, v, bars = 1) => voicing(PROG[b], 57).forEach(m => choir(T(b), BAR * bars, m, v)),
+    brass: (b, v) => voicing(PROG[b], 50).forEach(m => { brass(T(b), BEAT * 1.4, m, v); brass(T(b) + BEAT * 2.5, BEAT * 1.3, m, v * .9); }),
+    brassNote: (t, d, m, v) => brass(t, d, m, v),
+    pluck: (b, v) => { const vo = voicing(PROG[b], 62), arr = [vo[0], vo[1], vo[2], vo[0] + 12]; [0, 1, 2, 3, 2, 1, 2, 1].forEach((k, i) => pluck(T(b) + i * BAR / 8, arr[k], v * (i % 2 ? .75 : 1))); },
+    ost: (b, kind, v) => { const [r, iv] = CH[PROG[b]]; let root = r; while (root < 50) root += 12; const tones = [root, root + iv[1], root + iv[2], root + 12]; const n = kind === '16th' ? 16 : 8, pat = n === 16 ? [0, 2, 3, 2, 0, 2, 3, 2, 0, 2, 3, 2, 1, 2, 3, 2] : [0, 2, 3, 2, 1, 2, 3, 2]; for (let i = 0; i < n; i++) ost(T(b) + i * BAR / n, tones[pat[i]], v * (i % (n / 4) === 0 ? 1.25 : .85), i % 2 ? B.ostR : B.ostL); },
+    bass: (b, kind, v, bars = 1) => { let m = CH[PROG[b]][0]; while (m > 45) m -= 12; while (m < 34) m += 12; if (kind === 'drone') bass(T(b), BAR * bars - .05, m, v); else for (let i = 0; i < 8; i++) bass(T(b) + i * BAR / 8, BAR / 8 * .7, i === 7 ? m + 12 : m, v * (i % 2 ? .8 : 1)); },
+    drum: (b, kind, v) => {
+      const t = T(b), e = BAR / 8, s = BAR / 16;
+      if (kind === 'sparse') taiko(t, v);
+      if (kind === 'half') { taiko(t, v); taiko(t + 4 * e, v * .75); tom(t + 7 * e, v * .4, 120); }
+      if (kind === 'epic') { [[0, 1], [3, .6], [4, .85], [6, .7], [7, .55]].forEach(([i, a]) => taiko(t + i * e, v * a)); snare(t + 2 * e, v * .35); snare(t + 6 * e, v * .35); if (b % 2) [12, 13, 14, 15].forEach((i, k) => tom(t + i * s, v * (.3 + k * .1), [180, 160, 140, 120][k])); }
+      if (kind === 'march') { [1, 0, .4, .5, .9, 0, .4, 0, 1, 0, .4, .5, .9, .5, .6, .7].forEach((a, i) => { if (a) snare(t + i * s, v * a * .8); }); taiko(t, v * .8); taiko(t + 8 * s, v * .7); }
+      if (kind === 'build') { for (let i = 0; i < 16; i++) snare(t + i * s, v * (.2 + .8 * i / 15) * .8); for (let i = 0; i < 4; i++) taiko(t + i * BEAT, v * (.5 + .5 * i / 3)); }
+      if (kind === 'hand') [[0, 1, 190], [3, .6, 150], [4, .8, 190], [6, .6, 130], [7, .5, 150]].forEach(([i, a, f]) => tom(t + i * e, v * a, f));
+    },
+    mel: (bar0, phrase, inst, shift, v) => { const fn = inst === 'horn' ? horn : inst === 'flute' ? flute : strLead; phrase.forEach((bar, i) => bar.forEach(([bt, d, m]) => fn(T(bar0 + i) + bt * BEAT, d * BEAT * .95, m + shift, v))); },
+    boom: (t, v) => boom(t, v), braam: (t, d, m, v) => braam(t, d, m, v), swell: (t, d, v) => swell(t, d, v)
+  };
+  SC.forEach(s => { s.mus(s.b0, M); s.hits.forEach(([lt, v]) => boom(s.start + lt, v)); });
+
+  Q.sort((a, b) => a[0] - b[0]); let qi = 0, LIVE = [];
+  const flush = h => {
+    direct = true;
+    while (qi < Q.length && Q[qi][0] < h) { CUR = []; Q[qi][1](); LIVE.push([Q[qi][0] + 11, CUR]); CUR = null; qi++; }
+    direct = false;
+    const now = h - 1.5;
+    LIVE = LIVE.filter(([end, nodes]) => { if (end < now) { nodes.forEach(n => n.disconnect()); return false; } return true; });
+  };
+  flush(1.5);
+  for (let s = 1; s < DUR; s += 1) oc.suspend(s).then(() => { flush(s + 1.5); onProgress(s / DUR); oc.resume(); });
+  const out = await oc.startRendering();
+  let peak = 0; for (let c = 0; c < 2; c++) { const d = out.getChannelData(c); for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; } }
+  const k = .92 / (peak || 1); for (let c = 0; c < 2; c++) { const d = out.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] *= k; }
+  onProgress(1);
+  return out;
+}
+
+function toWav(buf) {
+  const n = buf.length, ch = buf.numberOfChannels, sr = buf.sampleRate, bytes = n * ch * 2, ab = new ArrayBuffer(44 + bytes), v = new DataView(ab);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); ws(8, 'WAVE'); ws(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, bytes, true);
+  const data = [...Array(ch)].map((_, c) => buf.getChannelData(c)); let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) { const s = Math.max(-1, Math.min(1, data[c][i])); v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true); o += 2; }
+  return new Blob([ab], { type: 'audio/wav' });
+}
+function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
+
+// =====================================================================
+//  PLAYER
+// =====================================================================
+const $ = id => document.getElementById(id);
+let actx = null, score = null, src = null, t0 = 0, pausedAt = 0, playing = false, recDest = null, recorder = null, token = 0;
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+function now() { return playing ? actx.currentTime - t0 : pausedAt; }
+function stopSrc() { if (src) { try { src.stop(); } catch (e) { } src.disconnect(); src = null; } }
+function playFrom(off) {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  actx.resume(); stopSrc();
+  src = actx.createBufferSource(); src.buffer = score; src.connect(actx.destination); if (recDest) src.connect(recDest);
+  const my = ++token; src.onended = () => { if (my === token && now() >= DUR - .05) finish(); };
+  src.start(0, off); t0 = actx.currentTime - off; playing = true; $('pp').textContent = '❚❚';
+}
+function pause() { if (!playing) return; pausedAt = now(); playing = false; token++; stopSrc(); $('pp').textContent = '▶'; }
+function finish() {
+  playing = false; pausedAt = DUR; stopSrc(); $('pp').textContent = '↺';
+  if (recorder && recorder.state === 'recording') setTimeout(() => recorder.stop(), 300);
+}
+function seek(tt) { tt = clamp(tt, 0, DUR - .01); if (playing) playFrom(tt); else pausedAt = tt; }
+function loop() {
+  const t = now();
+  render(t);
+  $('time').textContent = `${fmt(t)} / ${fmt(DUR)}`;
+  if (document.activeElement !== $('seek')) $('seek').value = t;
+  if (playing && t >= DUR) finish();
+  requestAnimationFrame(loop);
+}
+
+$('play').onclick = () => { $('intro').style.display = 'none'; playFrom(0); showControls(); };
+$('wav').onclick = () => download(toWav(score), 'Colombia-Epic-History-Soundtrack.wav');
+$('rec').onclick = () => {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  recDest = actx.createMediaStreamDestination();
+  const stream = cv.captureStream(60); stream.addTrack(recDest.stream.getAudioTracks()[0]);
+  const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const mime = types.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  if (!mime) { alert('This browser cannot record canvas video. Try Chrome or Edge.'); return; }
+  const chunks = []; recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6, audioBitsPerSecond: 256000 });
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+  recorder.onstop = () => { $('rec-badge').classList.remove('on'); recDest = null; download(new Blob(chunks, { type: mime.split(';')[0] }), 'Colombia-Epic-History.' + (mime.startsWith('video/mp4') ? 'mp4' : 'webm')); };
+  $('intro').style.display = 'none'; $('rec-badge').classList.add('on');
+  render(0); recorder.start(1000); playFrom(0);
+};
+$('pp').onclick = () => { if (playing) pause(); else playFrom(pausedAt >= DUR ? 0 : pausedAt); };
+$('seek').oninput = e => { if (!recorder || recorder.state !== 'recording') seek(+e.target.value); };
+$('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+let hideT; function showControls() { if ($('intro').style.display !== 'none') return; $('controls').classList.add('show'); clearTimeout(hideT); hideT = setTimeout(() => playing && $('controls').classList.remove('show'), 2500); }
+addEventListener('mousemove', showControls);
+addEventListener('keydown', e => {
+  if (!score || $('intro').style.display !== 'none') return;
+  if (recorder && recorder.state === 'recording') return;
+  if (e.code === 'Space') { e.preventDefault(); $('pp').click(); }
+  if (e.code === 'ArrowRight') seek(now() + 5);
+  if (e.code === 'ArrowLeft') seek(now() - 5);
+  if (e.code === 'KeyF') $('fs').click();
+  showControls();
+});
+
+// boot
+(async () => {
+  try { await Promise.race([Promise.all(['900 100px Cinzel', '700 100px Cinzel', '400 20px Montserrat', '700 20px Montserrat', '800 20px Montserrat', '300 20px Montserrat', '600 20px Montserrat', 'italic 300 20px Montserrat'].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 4000))]); } catch (e) { }
+  const qt = parseFloat(new URLSearchParams(location.search).get('t'));
+  pausedAt = isNaN(qt) ? 5.2 : qt;
+  if (!isNaN(qt)) { $('intro').style.display = 'none'; render(qt); } // ?t=SECONDS opens a still preview of that moment
+  requestAnimationFrame(loop);
+  const t1 = performance.now();
+  score = await composeScore(p => { $('pct').textContent = Math.round(p * 100) + '%'; $('barfill').style.width = (p * 100) + '%'; });
+  window.__score = score;
+  $('status').innerHTML = `Score ready (${((performance.now() - t1) / 1000).toFixed(1)} s to compose)`;
+  if (isNaN(qt)) pausedAt = 0; else { $('intro').style.display = ''; }
+  ['play', 'rec', 'wav'].forEach(id => $(id).disabled = false);
+})();
+</script>
+</body>
+</html>
